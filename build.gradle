@@ -1,0 +1,94 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.15'
+    }
+}
+
+plugins {
+    id 'com.github.johnrengelman.shadow' version '6.1.0'
+    id "com.google.protobuf" version "0.8.15"
+    id "idea"
+    id 'java'
+    id "maven-publish"
+}
+
+group 'gg.airplane'
+version '1.0-SNAPSHOT'
+
+java {
+    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs 'build/generated/source/proto/main/java'
+        }
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:3.12.4"
+    }
+
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                java {
+                    option "lite"
+                }
+            }
+        }
+    }
+
+    generateProtoTasks.generatedFilesBaseDir = 'generated-sources'
+    generatedFilesBaseDir = "$projectDir/src/generated"
+}
+
+import com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocation
+
+task relocateShadowJar(type: ConfigureShadowRelocation) {
+    target = tasks.shadowJar
+    prefix = "gg.airplane.flare.libs"
+}
+
+tasks.shadowJar.dependsOn tasks.relocateShadowJar
+
+shadowJar {
+    minimize()
+    exclude '*.proto'
+    exclude 'google.protobuf'
+    includeEmptyDirs false
+}
+
+jar {
+    enabled = false
+    dependsOn(shadowJar { classifier = null })
+}
+
+dependencies {
+    compile 'tools.profiler:async-profiler:1.8.3'
+    compile 'com.github.oshi:oshi-core:5.5.1'
+    compile 'org.apache.httpcomponents.client5:httpclient5:5.0.3'
+    compile 'com.eclipsesource.minimal-json:minimal-json:0.9.5'
+
+    compile 'com.google.protobuf:protobuf-javalite:3.8.0'
+}
+
+publishing {
+    publications {
+        shadow(MavenPublication) { publication ->
+            project.shadow.component(publication)
+        }
+    }
+}

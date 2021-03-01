@@ -1,0 +1,138 @@
+syntax = "proto2";
+
+package gg.airplane.flare.proto;
+
+option java_package = "gg.airplane.flare.proto";
+option java_outer_classname = "ProfilerFileProto";
+
+enum ProfileType {
+  ITIMER = 0;
+  CPU = 1;
+  ALLOC = 2;
+  LOCK = 3;
+  WALL = 4;
+}
+
+message CreateProfile {
+  required Format format = 1 [default = ONE_ZERO];
+  required Version version = 2;
+  repeated ConfigurationFile configs = 3;
+  required HardwareInfo hwinfo = 4;
+  required VMOptions vmoptions = 5;
+  required OperatingSystem os = 6;
+
+  enum Format {
+    ONE_ZERO = 0; // 1.0
+  }
+
+  message Version {
+    required string primary = 1;
+    required string api = 2;
+    required string mc = 3;
+  }
+
+  message ConfigurationFile {
+    required string filename = 1;
+    required string contents = 2;
+  }
+
+  message HardwareInfo {
+    message CPU {
+      required string model = 1;
+      required uint32 coreCount = 2;
+      required uint32 threadCount = 3;
+      required uint64 frequency = 4;
+    }
+
+    required CPU cpu = 1;
+
+    message Memory {
+      required uint64 total = 1;
+      required uint64 swapTotal = 2;
+      required uint64 virtualMax = 3;
+    }
+
+    required Memory memory = 2;
+  }
+
+  message VMOptions {
+    required string version = 1;
+    required string vendor = 2;
+    required string vm = 3;
+    required string runtimeName = 4;
+    required string runtimeVersion = 5;
+    repeated string flags = 6;
+  }
+
+  message OperatingSystem {
+    required string manufacturer = 1;
+    required string family = 2;
+    required string version = 3;
+    required uint32 bitness = 4;
+  }
+}
+
+message AirplaneProfileFile {
+  message ProfileInfo {
+    optional uint64 samples = 1;
+    optional uint64 time_ms = 2;
+  }
+
+  required ProfileInfo info = 1;
+
+  message ProfileData {
+    oneof ProfileType {
+      TimeProfile timeProfile = 1;
+      MemoryProfile memoryProfile = 2;
+    }
+  }
+
+  required ProfileData data = 2;
+
+  required uint64 startedAt = 4;
+  required uint64 stoppedAt = 5;
+}
+
+message TimeProfile {
+  message Children {
+    required string name = 1;
+    required uint64 time = 2;
+    optional string plugin = 3;
+    required uint32 samples = 4;
+    repeated Children children = 5;
+  }
+
+  repeated Children children = 1;
+}
+
+message MemoryProfile {
+  message Children {
+    required string name = 1;
+    optional string plugin = 2;
+    required uint32 bytes = 3;
+    repeated Children children = 4;
+  }
+
+  repeated Children children = 1;
+}
+
+message AirplaneTimelineFile {
+    message TimeData {
+      required float tps = 1;
+      required float mspt = 2;
+      required uint32 playerCount = 3;
+      required uint32 entityCount = 4;
+      required uint32 totalChunkCount = 5;
+      required uint32 inactiveChunkCount = 6;
+      required uint32 tileEntityCount = 7;
+      required uint32 currentMemoryUsage = 8;
+      required uint32 totalMemoryAvailable = 9;
+      required float cpuUsage = 10;
+      required uint32 gcTime = 11; // time spent in GC
+      required uint32 oldGcTime = 12;
+    }
+
+    repeated TimeData timeData = 1;
+    required uint64 startedAt = 2;
+    required uint64 stoppedAt = 3;
+}
