@@ -2,6 +2,7 @@ package gg.airplane.flare.profiling;
 
 import gg.airplane.flare.ProfileType;
 import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.exceptions.UserReportableException;
 import gg.airplane.flare.proto.ProfilerFileProto;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
@@ -15,6 +16,7 @@ import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.logging.Level;
 
 public class ProfileController implements Runnable {
 
@@ -37,7 +39,7 @@ public class ProfileController implements Runnable {
     private ProfilingTask currentTask;
     private boolean running = false;
 
-    public ProfileController(ProfileType type, int interval) throws IOException {
+    public ProfileController(ProfileType type, int interval) throws UserReportableException {
         this.type = type;
         this.interval = interval;
 
@@ -129,7 +131,7 @@ public class ProfileController implements Runnable {
                 this.currentTask = new ProfilingTask(type, this.interval);
             }
         } catch (Throwable t) {
-            t.printStackTrace();
+            ServerConnector.connector.log(Level.WARNING, "Failed to run Flare controller", t);
         }
     }
 
@@ -152,8 +154,8 @@ public class ProfileController implements Runnable {
             ServerConnector.connector.runAsync(() -> {
                 try {
                     this.connection.sendNewData(file);
-                } catch (Throwable e) {
-                    e.printStackTrace();
+                } catch (UserReportableException e) {
+                    ServerConnector.connector.log(Level.WARNING, e.getUserError(), e);
                 }
             });
         }

@@ -3,6 +3,7 @@ package gg.airplane.flare.profiling;
 import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonObject;
 import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.exceptions.UserReportableException;
 import gg.airplane.flare.proto.ProfilerFileProto;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -21,7 +22,7 @@ class ProfilingConnection {
     private final String id;
     private final String key;
 
-    public ProfilingConnection(ProfilerFileProto.CreateProfile profilerCreator) throws IOException {
+    public ProfilingConnection(ProfilerFileProto.CreateProfile profilerCreator) throws UserReportableException {
         try (CloseableHttpClient client = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(ServerConnector.connector.getWebUrl() + "/create");
 
@@ -39,21 +40,23 @@ class ProfilingConnection {
 
                 JsonObject object = Json.parse(byteStream.toString()).asObject();
                 if (object.getBoolean("error", false)) {
-                    throw new IOException("Error occurred starting Flare: " + object.getString("message", "unknown error"));
+                    throw new UserReportableException("Error occurred starting Flare: " + object.getString("message", "unknown error"));
                 }
 
                 this.id = object.getString("id", null);
                 this.key = object.getString("key", null);
                 if (this.id == null || this.key == null) {
-                    throw new IOException("Invalid response from profile server: " + object);
+                    throw new UserReportableException("Received invalid response from Flare server, please check logs", new IOException("Invalid response from Flare server: " + object));
                 }
             } catch (IOException e) {
-                throw new IOException("Failed to connect to " + post.getRequestUri(), e);
+                throw new UserReportableException("Failed to connect to " + post.getRequestUri(), e);
             }
+        } catch (IOException e) {
+            throw new UserReportableException("Failed initial connection to Flare server", e);
         }
     }
 
-    public void sendNewData(ProfilerFileProto.AirplaneProfileFile file) throws IOException {
+    public void sendNewData(ProfilerFileProto.AirplaneProfileFile file) throws UserReportableException {
         try (CloseableHttpClient client = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(ServerConnector.connector.getWebUrl() + "/" + this.id + "/" + this.key);
 
@@ -69,15 +72,17 @@ class ProfilingConnection {
 
                 JsonObject object = Json.parse(byteStream.toString()).asObject();
                 if (object.getBoolean("error", false)) {
-                    throw new IOException("Error occurred sending Flare: " + object.getString("message", "unknown error"));
+                    throw new UserReportableException("Error occurred sending Flare: " + object.getString("message", "unknown error"));
                 }
 
                 if (response.getCode() != 200) {
                     throw new IOException("Error occurred sending data: Failed to open connection to profile server, code: " + response.getCode() + " msg: " + object);
                 }
             } catch (IOException e) {
-                throw new IOException("Failed to connect to " + post.getRequestUri(), e);
+                throw new UserReportableException("Failed to connect to " + post.getRequestUri(), e);
             }
+        } catch (IOException e) {
+            throw new UserReportableException("Failed to connect to Flare server", e);
         }
     }
 
