@@ -4,19 +4,23 @@ import com.sun.jna.Platform;
 import gg.airplane.flare.ProfileType;
 import gg.airplane.flare.ServerConnector;
 import gg.airplane.flare.proto.ProfilerFileProto;
+import one.jfr.ClassRef;
+import one.jfr.Dictionary;
+import one.jfr.JfrReader;
+import one.jfr.MethodRef;
 import one.profiler.AsyncProfiler;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Iterator;
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
@@ -26,6 +30,9 @@ public class AsyncProfilerIntegration {
     private static AsyncProfiler profiler;
     private static long startTime = 0;
     private static String disabledReason = "";
+    private static Path tempdir = null;
+    private static String profileFile = null;
+    private static int interval;
 
     public static void init() {
         String path = Platform.RESOURCE_PREFIX + "/libasyncProfiler.so";
@@ -80,13 +87,10 @@ public class AsyncProfilerIntegration {
         return currentProfile != null;
     }
 
-    private static void execute(String command) {
-        try {
-            System.out.println("[Airplane] " + command + " -> " + profiler.execute(command));
-//            profiler.execute(command);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+    private static String execute(String command) throws IOException {
+        String val = profiler.execute(command);
+        System.out.println("[Airplane] " + command + " -> " + val);
+        return val;
     }
 
     synchronized static void startProfiling(ProfileType type, int interval) throws IOException {
@@ -94,16 +98,20 @@ public class AsyncProfilerIntegration {
             throw new RuntimeException("Profiling already started.");
         }
         currentProfile = type;
+        AsyncProfilerIntegration.interval = interval;
         Thread mainThread = ServerConnector.connector.getMainThread();
+
+        tempdir = Files.createTempDirectory("flare");
+        profileFile = tempdir.resolve("flare.jfr").toString();
 
         String returned;
         if (type == ProfileType.ALLOC) {
-            returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,jstackdepth=1024");
+            returned = execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,jstackdepth=1024,jfr,file=" + profileFile);
         } else {
-            returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024");
+            returned = execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024,jfr,file=" + profileFile);
             profiler.addThread(mainThread);
         }
-        if (!returned.contains("Started ") || !returned.contains(" profiling")) {
+        if (!returned.trim().equals("Profiling started")) {
             throw new IOException("Failed to start flare: " + returned.trim());
         }
         startTime = System.currentTimeMillis();
@@ -131,6 +139,106 @@ public class AsyncProfilerIntegration {
         return true;
     }
 
+    private static final int FRAME_KERNEL = 5;
+
+    protected enum JFRMethodType {
+        JAVA('J'),
+        KERNEL('K'),
+        NATIVE('N');
+
+        private final char prefix;
+
+        JFRMethodType(char prefix) {
+            this.prefix = prefix;
+        }
+
+        public char getPrefix() {
+            return prefix;
+        }
+    }
+
+    protected static class JFRMethod {
+        private final JFRMethodType type;
+
+        private final String classString;
+        private final String methodStr;
+        private final String signatureStr;
+
+        private final String fullPath;
+
+        public JFRMethod(JFRMethodType type, String classString, String methodStr, String signatureStr, String fullPath) {
+            this.type = type;
+            this.classString = classString;
+            this.methodStr = methodStr;
+            this.signatureStr = signatureStr;
+            this.fullPath = fullPath;
+        }
+
+        public JFRMethodType getType() {
+            return type;
+        }
+
+        public String getClassString() {
+            return classString;
+        }
+
+        public String getMethodStr() {
+            return methodStr;
+        }
+
+        public String getSignatureStr() {
+            return signatureStr;
+        }
+
+        public String getFullPath() {
+            return fullPath;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            JFRMethod jfrMethod = (JFRMethod) o;
+            return type == jfrMethod.type && Objects.equals(classString, jfrMethod.classString) && Objects.equals(methodStr, jfrMethod.methodStr) && Objects.equals(signatureStr, jfrMethod.signatureStr) && Objects.equals(fullPath, jfrMethod.fullPath);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, classString, methodStr, signatureStr, fullPath);
+        }
+
+        @Override
+        public String toString() {
+            return this.type.prefix + this.fullPath;
+        }
+    }
+
+    private static JFRMethod getMethodName(long methodId, int type, JfrReader reader, Dictionary<JFRMethod> methodNames) {
+        JFRMethod result = methodNames.get(methodId);
+        if (result != null) {
+            return result;
+        }
+
+        MethodRef method = reader.methods.get(methodId);
+        ClassRef cls = reader.classes.get(method.cls);
+        byte[] className = reader.symbols.get(cls.name);
+        byte[] methodName = reader.symbols.get(method.name);
+        byte[] signature = reader.symbols.get(method.sig);
+
+        if (className == null || className.length == 0) {
+            String methodStr = new String(methodName, StandardCharsets.UTF_8);
+            result = new JFRMethod(type == FRAME_KERNEL ? JFRMethodType.KERNEL : JFRMethodType.NATIVE, null, null, null, methodStr);
+        } else {
+            String classStr = new String(className, StandardCharsets.UTF_8).replace("/", ".");
+            String methodStr = new String(methodName, StandardCharsets.UTF_8);
+            String signatureStr = new String(signature, StandardCharsets.UTF_8);
+            result = new JFRMethod(JFRMethodType.JAVA, classStr, methodStr, signatureStr, classStr + '.' + methodStr + signatureStr);
+        }
+
+        methodNames.put(methodId, result);
+        return result;
+    }
+
     synchronized static ProfilerFileProto.AirplaneProfileFile.Builder stopProfiling() {
         if (currentProfile == null) {
             throw new RuntimeException("Flare has not been started.");
@@ -142,130 +250,91 @@ public class AsyncProfilerIntegration {
             throw t;
         }
 
-        try {
-            String results = profiler.execute("traces=1024,sig");
-            String[] lines = results.split("\n");
+        Dictionary<JFRMethod> methodNames = new Dictionary<>(); // method names cache
+        try (JfrReader reader = new JfrReader(profileFile)) {
+            Map<String, ProfileSection> threadsMap = new HashMap<>();
+            reader.stackTraces.forEach((stackId, stackTrace) -> {
+                List<String> threads = stackTrace.samples.stream().map(sampleId -> reader.threads.get(reader.samples.get(sampleId).tid)).collect(Collectors.toList());
 
-            final ProfileSection head = new ProfileSection("Head", currentProfile);
+                long[] methods = stackTrace.methods;
+                byte[] types = stackTrace.types;
 
-            List<String> currentWorkingSection = new ArrayList<>();
-
-            AtomicInteger totalSamples = new AtomicInteger();
-
-            Runnable process = () -> {
-                if (currentWorkingSection.isEmpty()) {
-                    return;
-                }
-                String fullHeader = currentWorkingSection.get(0);
-                if (!fullHeader.startsWith("---")) {
-                    currentWorkingSection.clear();
-                    return;
-                }
-                String header = fullHeader.replaceAll("-", "").trim();
-                if (header.equals("Execution profile")) {
-                    if (currentWorkingSection.size() > 1) {
-                        if (currentWorkingSection.get(1).trim().startsWith("Total Samples")) {
-                            totalSamples.set(Integer.parseInt(currentWorkingSection.get(1).split(":")[1].trim()));
+                for (String thread : threads) {
+//                    System.out.println("---- " + stackTrace.samples + " " + thread);
+                    ProfileSection lastSection = null;
+                    for (int i = methods.length - 1; i >= 0; i--) {
+                        JFRMethod method = getMethodName(methods[i], types[i], reader, methodNames);
+//                        System.out.println(method);
+                        if (lastSection == null) {
+                            lastSection = threadsMap.computeIfAbsent(thread, t -> new ProfileSection(method, currentProfile));
+                        } else {
+                            lastSection = lastSection.getSection(method);
                         }
                     }
-                    currentWorkingSection.clear();
-                    return; // ignore for now, has some useful stats though
-                }
-                String[] splitHeader = header.split(" ");
-                long ns = Long.parseUnsignedLong(splitHeader[0]);
-                int samples = Integer.parseInt(header.split(",")[1].trim().split(" ")[0]);
-                ProfileSection section = head;
 
-                for (int i = currentWorkingSection.size() - 1; i >= 1; i--) {
-                    String[] split1 = currentWorkingSection.get(i).split("] ");
-                    if (split1.length < 2) {
-                        continue;
+                    if (lastSection != null) {
+                        lastSection.setSamples(stackTrace.samples.size());
+                        lastSection.setTimeTakenNs((long) interval * stackTrace.samples.size());
                     }
-                    String line = split1[1].trim();
-                    if (line.startsWith("[") && (line.contains(" tid") || line.startsWith("[tid="))) {
-                        String[] split = line.split(" tid=");
-                        line = split[0].substring(1);
-                        if (section == head && !line.equals("Server thread")) {
-                            currentWorkingSection.clear();
-                            return;
-                        }
-                    }
-                    section = section.getSection(line);
+//                    System.out.println();
                 }
+            });
 
-                section.setTimeTakenNs(ns);
-                section.setSamples(samples);
-                currentWorkingSection.clear();
-            };
-
-            for (int i = 0; i < lines.length; i++) {
-                String line = lines[i];
-                if (line.startsWith("---")) {
-                    process.run(); // process previous section
-                }
-                String trimmed = line.trim();
-                if (trimmed.length() > 0) {
-                    currentWorkingSection.add(trimmed);
-                }
+            for (ProfileSection value : threadsMap.values()) {
+//                System.out.println(value.print(0));
             }
 
-            process.run();
-
-            for (Iterator<Map.Entry<String, ProfileSection>> iterator = head.getSections().entrySet().iterator(); iterator.hasNext(); ) {
-                Map.Entry<String, ProfileSection> entry = iterator.next();
-                String s = entry.getKey();
-                String[] split = s.split("-");
-                if (split.length > 0 && isInt(split[split.length - 1])) {
-                    String newKey = s.substring(0, s.lastIndexOf("-"));
-                    head.getSections().computeIfAbsent(newKey, k -> new ProfileSection(k, currentProfile)).merge(entry.getValue());
-                    iterator.remove();
-                }
-            }
-
-            Collection<ProfileSection> threads = head.getSections().values();
-
-//            {
-//                ProfileSection serverThread = head.getSections().get("Server thread");
-//                boolean bad = false;
-//                for (Map.Entry<String, ProfileSection> entry : serverThread.getSections().entrySet()) {
-//                    if (!entry.getKey().equals("java.lang.Thread.run") && !entry.getKey().trim().equals("[unknown_Java]")) {
-//                        System.out.println("Bad key " + entry.getKey());
-//                        bad = true;
-//                    }
-//                }
-//
-//                if (bad) {
-//                    File outputFile = new File("output-" + System.currentTimeMillis() + ".txt");
-//                    Files.write(outputFile.toPath(), results.getBytes(StandardCharsets.UTF_8));
-//                    System.out.println("Saved " + currentProfile.name() + " to " + outputFile);
-//                }
-//            }
-
-            long time = System.currentTimeMillis() - startTime;
             ProfilerFileProto.AirplaneProfileFile.Builder builder = ProfilerFileProto.AirplaneProfileFile.newBuilder()
               .setInfo(ProfilerFileProto.AirplaneProfileFile.ProfileInfo.newBuilder()
-                .setSamples(totalSamples.get())
-                .setTimeMs(time)
+                .setSamples(reader.samples.getSize())
+                .setTimeMs(reader.durationNanos / 1000000)
                 .build());
+
             if (currentProfile == ProfileType.ALLOC) {
                 return builder
                   .setData(ProfilerFileProto.AirplaneProfileFile.ProfileData.newBuilder()
                     .setMemoryProfile(ProfilerFileProto.MemoryProfile.newBuilder()
-                      .addAllChildren(threads.stream().map(ProfileSection::toMemoryProfile).collect(Collectors.toList()))
-                      .build())
-                    .build());
+                      .addAllChildren(threadsMap
+                        .entrySet()
+                        .stream()
+                        .map(entry -> ProfilerFileProto.MemoryProfile.Children.newBuilder()
+                          .setName(entry.getKey())
+                          .setBytes((int) entry.getValue().calculateTimeTaken())
+                          .addChildren(entry.getValue().toMemoryProfile())
+                          .build())
+                        .collect(Collectors.toList())
+                      )
+                    )
+                  );
             } else {
                 return builder
                   .setData(ProfilerFileProto.AirplaneProfileFile.ProfileData.newBuilder()
                     .setTimeProfile(ProfilerFileProto.TimeProfile.newBuilder()
-                      .addAllChildren(threads.stream().map(ProfileSection::toTimeChild).collect(Collectors.toList()))
-                      .build())
-                    .build());
+                      .addAllChildren(threadsMap
+                        .entrySet()
+                        .stream()
+                        .map(entry -> ProfilerFileProto.TimeProfile.Children.newBuilder()
+                          .setName(entry.getKey())
+                          .setTime(entry.getValue().calculateTimeTaken())
+                          .setSamples(1)
+                          .addChildren(entry.getValue().toTimeChild())
+                          .build())
+                        .collect(Collectors.toList())
+                      )
+                    )
+                  );
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
         } finally {
             currentProfile = null;
+            try {
+                for (Path path : Files.list(tempdir).collect(Collectors.toList())) {
+                    Files.delete(path);
+                }
+                Files.delete(tempdir);
+            } catch (IOException e) {
+            }
         }
     }
 }

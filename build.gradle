@@ -41,15 +41,15 @@ protobuf {
         artifact = "com.google.protobuf:protoc:3.12.4"
     }
 
-    generateProtoTasks {
-        all().each { task ->
-            task.builtins {
-                java {
-                    option "lite"
-                }
-            }
-        }
-    }
+//    generateProtoTasks {
+//        all().each { task ->
+//            task.builtins {
+//                java {
+//                    option "lite"
+//                }
+//            }
+//        }
+//    }
 
     generateProtoTasks.generatedFilesBaseDir = 'generated-sources'
     generatedFilesBaseDir = "$projectDir/src/generated"
@@ -82,7 +82,10 @@ dependencies {
     compile 'org.apache.httpcomponents.client5:httpclient5:5.0.3'
     compile 'com.eclipsesource.minimal-json:minimal-json:0.9.5'
 
-    compile 'com.google.protobuf:protobuf-javalite:3.8.0'
+    //compile 'com.google.protobuf:protobuf-javalite:3.8.0'
+
+    compile 'com.google.protobuf:protobuf-java:3.14.0'
+    compile 'com.google.protobuf:protobuf-java-util:3.14.0'
 }
 
 publishing {

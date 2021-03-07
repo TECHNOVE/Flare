@@ -11,29 +11,26 @@ import java.util.List;
 import java.util.Map;
 
 class ProfileSection {
-    private final String name;
+    private final AsyncProfilerIntegration.JFRMethod method;
     private final ProfileType type;
-    private final Map<String, ProfileSection> sections = new HashMap<>();
+    private final Map<AsyncProfilerIntegration.JFRMethod, ProfileSection> sections = new HashMap<>();
     private long timeTaken = 0;
     private int samples = 0;
 
-    public ProfileSection(String name, ProfileType type) {
-        this.name = name;
+    public ProfileSection(AsyncProfilerIntegration.JFRMethod method, ProfileType type) {
+        this.method = method;
         this.type = type;
     }
 
-    public String getName() {
-        return name;
+    public AsyncProfilerIntegration.JFRMethod getMethod() {
+        return method;
     }
 
-    public Map<String, ProfileSection> getSections() {
+    public Map<AsyncProfilerIntegration.JFRMethod, ProfileSection> getSections() {
         return sections;
     }
 
     public void setTimeTakenNs(long timeTaken) {
-        if (this.type != ProfileType.ALLOC) {
-            timeTaken /= 1000000; // convert to ms
-        }
         this.timeTaken = timeTaken;
     }
 
@@ -45,8 +42,8 @@ class ProfileSection {
         this.samples = samples;
     }
 
-    public ProfileSection getSection(String name) {
-        return this.sections.computeIfAbsent(name, k -> new ProfileSection(k, this.type));
+    public ProfileSection getSection(AsyncProfilerIntegration.JFRMethod method) {
+        return this.sections.computeIfAbsent(method, k -> new ProfileSection(k, this.type));
     }
 
     public long calculateTimeTaken() {
@@ -58,20 +55,20 @@ class ProfileSection {
         this.timeTaken += section.timeTaken;
         this.samples += section.samples;
         for (ProfileSection value : section.getSections().values()) {
-            if (this.sections.containsKey(value.getName())) {
-                this.sections.get(value.getName()).merge(value);
+            if (this.sections.containsKey(value.getMethod())) {
+                this.sections.get(value.getMethod()).merge(value);
             } else {
-                this.sections.put(value.getName(), value);
+                this.sections.put(value.getMethod(), value);
             }
         }
     }
 
     public TimeProfile.Children toTimeChild() {
         TimeProfile.Children.Builder builder = TimeProfile.Children.newBuilder();
-        builder.setName(this.name);
+        builder.setName(this.method.toString());
         builder.setTime(this.calculateTimeTaken());
         builder.setSamples(this.samples);
-        String pluginForClass = ServerConnector.connector.getPluginForClass(this.name);
+        String pluginForClass = this.method.getClassString() == null ? null : ServerConnector.connector.getPluginForClass(this.method.getClassString());
         if (pluginForClass != null) {
             builder.setPlugin(pluginForClass);
         }
@@ -85,9 +82,9 @@ class ProfileSection {
 
     public ProfilerFileProto.MemoryProfile.Children toMemoryProfile() {
         ProfilerFileProto.MemoryProfile.Children.Builder builder = ProfilerFileProto.MemoryProfile.Children.newBuilder();
-        builder.setName(this.name);
+        builder.setName(this.method.toString());
         builder.setBytes((int) this.calculateTimeTaken());
-        String pluginForClass = ServerConnector.connector.getPluginForClass(this.name);
+        String pluginForClass = this.method.getClassString() == null ? null : ServerConnector.connector.getPluginForClass(this.method.getClassString());
         if (pluginForClass != null) {
             builder.setPlugin(pluginForClass);
         }
@@ -100,12 +97,11 @@ class ProfileSection {
     }
 
     public String print(int indent) {
-        String plugin = ServerConnector.connector.getPluginForClass(this.name);
         StringBuilder builder = new StringBuilder();
         for (int i = 0; i < indent; i++) {
             builder.append(" ");
         }
-        builder.append(this.name).append(" [").append(this.calculateTimeTaken()).append("] ").append(plugin == null ? "" : plugin);
+        builder.append(this.method).append(" [").append(this.calculateTimeTaken()).append("] ").append("\n");
         for (ProfileSection value : this.sections.values()) {
             builder.append(value.print(indent + 1));
         }
