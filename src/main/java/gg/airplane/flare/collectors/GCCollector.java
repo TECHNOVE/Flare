@@ -66,7 +66,7 @@ public class GCCollector {
 
     private static final List<GarbageEvent> events = new ArrayList<>();
 
-    static {
+    public static void initialize() {
         for (GarbageCollectorMXBean garbageCollectorBean : ManagementFactory.getGarbageCollectorMXBeans()) {
             NotificationEmitter notificationEmitter = (NotificationEmitter) garbageCollectorBean;
             notificationEmitter.addNotificationListener((notification, o) -> {

@@ -3,6 +3,8 @@ package gg.airplane.flare.profiling;
 import com.sun.jna.Platform;
 import gg.airplane.flare.ProfileType;
 import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.collectors.GCCollector;
+import gg.airplane.flare.collectors.ThreadState;
 import gg.airplane.flare.proto.ProfilerFileProto;
 import one.profiler.AsyncProfiler;
 
@@ -13,9 +15,12 @@ import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -26,6 +31,7 @@ public class AsyncProfilerIntegration {
     private static AsyncProfiler profiler;
     private static long startTime = 0;
     private static String disabledReason = "";
+    private static final Set<String> activeThreads = new HashSet<>();
 
     public static void init() {
         String path = Platform.RESOURCE_PREFIX + "/libasyncProfiler.so";
@@ -66,6 +72,9 @@ public class AsyncProfilerIntegration {
 
         profiler = AsyncProfiler.getInstance(tmp.getAbsolutePath());
         ServerConnector.connector.log(Level.INFO, "Enabled async profiling support, version " + profiler.getVersion());
+
+        ThreadState.initialize();
+        GCCollector.initialize();
     }
 
     public static String getDisabledReason() {
@@ -102,6 +111,10 @@ public class AsyncProfilerIntegration {
         } else {
             returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024");
             profiler.addThread(mainThread);
+            for (Thread activeThread : ThreadState.getActiveThreads()) {
+                profiler.addThread(activeThread);
+                activeThreads.add(activeThread.getName());
+            }
         }
         if (!returned.contains("Started ") || !returned.contains(" profiling")) {
             throw new IOException("Failed to start flare: " + returned.trim());
@@ -185,7 +198,7 @@ public class AsyncProfilerIntegration {
                     if (line.startsWith("[") && (line.contains(" tid") || line.startsWith("[tid="))) {
                         String[] split = line.split(" tid=");
                         line = split[0].substring(1);
-                        if (section == head && !line.equals("Server thread")) {
+                        if (section == head && !activeThreads.contains(line)) {
                             currentWorkingSection.clear();
                             return;
                         }
@@ -211,15 +224,19 @@ public class AsyncProfilerIntegration {
 
             process.run();
 
+            Map<String, ProfileSection> toMerge = new HashMap<>(0);
             for (Iterator<Map.Entry<String, ProfileSection>> iterator = head.getSections().entrySet().iterator(); iterator.hasNext(); ) {
                 Map.Entry<String, ProfileSection> entry = iterator.next();
                 String s = entry.getKey();
                 String[] split = s.split("-");
                 if (split.length > 0 && isInt(split[split.length - 1])) {
                     String newKey = s.substring(0, s.lastIndexOf("-"));
-                    head.getSections().computeIfAbsent(newKey, k -> new ProfileSection(k, currentProfile)).merge(entry.getValue());
+                    toMerge.put(newKey, entry.getValue());
                     iterator.remove();
                 }
+            }
+            for (Map.Entry<String, ProfileSection> entry : toMerge.entrySet()) {
+                head.getSections().computeIfAbsent(entry.getKey(), k -> new ProfileSection(k, currentProfile)).merge(entry.getValue());
             }
 
             Collection<ProfileSection> threads = head.getSections().values();
@@ -266,6 +283,7 @@ public class AsyncProfilerIntegration {
             throw new RuntimeException(e);
         } finally {
             currentProfile = null;
+            activeThreads.clear();
         }
     }
 }
