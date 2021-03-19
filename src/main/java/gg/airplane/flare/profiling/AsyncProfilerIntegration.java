@@ -107,7 +107,7 @@ public class AsyncProfilerIntegration {
 
         String returned;
         if (type == ProfileType.ALLOC) {
-            returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,jstackdepth=1024");
+            returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,jstackdepth=1024");
         } else {
             returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024");
             profiler.addThread(mainThread);
@@ -198,7 +198,7 @@ public class AsyncProfilerIntegration {
                     if (line.startsWith("[") && (line.contains(" tid") || line.startsWith("[tid="))) {
                         String[] split = line.split(" tid=");
                         line = split[0].substring(1);
-                        if (section == head && !activeThreads.contains(line)) {
+                        if (section == head && (currentProfile == ProfileType.ALLOC || !activeThreads.contains(line))) {
                             currentWorkingSection.clear();
                             return;
                         }
