@@ -27,6 +27,8 @@ import java.util.stream.Collectors;
 
 public class AsyncProfilerIntegration {
 
+    private static boolean initialized = false;
+
     private static ProfileType currentProfile;
     private static AsyncProfiler profiler;
     private static long startTime = 0;
@@ -34,6 +36,9 @@ public class AsyncProfilerIntegration {
     private static final Set<String> activeThreads = new HashSet<>();
 
     public static void init() {
+        if (initialized) {
+            return;
+        }
         String path = Platform.RESOURCE_PREFIX + "/libasyncProfiler.so";
 
         File tmp = new File(System.getProperty("java.io.tmpdir"), "libasyncProfiler.so");
@@ -72,6 +77,7 @@ public class AsyncProfilerIntegration {
 
         profiler = AsyncProfiler.getInstance(tmp.getAbsolutePath());
         ServerConnector.connector.log(Level.INFO, "Enabled async profiling support, version " + profiler.getVersion());
+        initialized = true;
 
         ThreadState.initialize();
         GCCollector.initialize();
