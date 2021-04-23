@@ -132,6 +132,17 @@ public class ProfileController implements Runnable {
             }
         } catch (Throwable t) {
             ServerConnector.connector.log(Level.WARNING, "Failed to run Flare controller", t);
+
+            // just try and kill as much as possible
+            try {
+                this.cancel();
+            } catch (Exception e){}
+            try {
+                this.stop();
+            } catch (Exception e){}
+            try {
+                AsyncProfilerIntegration.stopProfiling();
+            } catch (Exception e){}
         }
     }
 

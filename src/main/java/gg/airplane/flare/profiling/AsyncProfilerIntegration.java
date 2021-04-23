@@ -113,7 +113,7 @@ public class AsyncProfilerIntegration {
 
         String returned;
         if (type == ProfileType.ALLOC) {
-            returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,jstackdepth=1024");
+            returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,jstackdepth=1024");
         } else {
             returned = profiler.execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024");
             profiler.addThread(mainThread);
@@ -122,7 +122,7 @@ public class AsyncProfilerIntegration {
                 activeThreads.add(activeThread.getName());
             }
         }
-        if (!returned.contains("Started ") || !returned.contains(" profiling")) {
+        if ((!returned.contains("Started ") || !returned.contains(" profiling")) && !returned.contains("Profiling started")) {
             throw new IOException("Failed to start flare: " + returned.trim());
         }
         startTime = System.currentTimeMillis();
@@ -246,23 +246,6 @@ public class AsyncProfilerIntegration {
             }
 
             Collection<ProfileSection> threads = head.getSections().values();
-
-//            {
-//                ProfileSection serverThread = head.getSections().get("Server thread");
-//                boolean bad = false;
-//                for (Map.Entry<String, ProfileSection> entry : serverThread.getSections().entrySet()) {
-//                    if (!entry.getKey().equals("java.lang.Thread.run") && !entry.getKey().trim().equals("[unknown_Java]")) {
-//                        System.out.println("Bad key " + entry.getKey());
-//                        bad = true;
-//                    }
-//                }
-//
-//                if (bad) {
-//                    File outputFile = new File("output-" + System.currentTimeMillis() + ".txt");
-//                    Files.write(outputFile.toPath(), results.getBytes(StandardCharsets.UTF_8));
-//                    System.out.println("Saved " + currentProfile.name() + " to " + outputFile);
-//                }
-//            }
 
             long time = System.currentTimeMillis() - startTime;
             ProfilerFileProto.AirplaneProfileFile.Builder builder = ProfilerFileProto.AirplaneProfileFile.newBuilder()
