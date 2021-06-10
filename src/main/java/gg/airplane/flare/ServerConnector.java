@@ -24,6 +24,8 @@ public abstract class ServerConnector {
 
     public abstract void schedule(Runnable runnable, long tick1, long tick2);
 
+    public abstract void scheduleAsync(Runnable runnable, long tick1, long tick2);
+
     public abstract void cancel(Runnable runnable);
 
     public abstract void runAsync(Runnable runnable);

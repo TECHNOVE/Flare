@@ -31,10 +31,6 @@ public class Dictionary<T> {
         this.values = new Object[INITIAL_CAPACITY];
     }
 
-    public int getSize() {
-        return size;
-    }
-
     public void put(long key, T value) {
         if (key == 0) {
             throw new IllegalArgumentException("Zero key not allowed");

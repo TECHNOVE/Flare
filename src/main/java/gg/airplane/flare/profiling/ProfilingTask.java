@@ -2,6 +2,7 @@ package gg.airplane.flare.profiling;
 
 import gg.airplane.flare.ProfileType;
 import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.profiling.dictionary.ProfileDictionary;
 import gg.airplane.flare.proto.ProfilerFileProto;
 
 import java.io.IOException;
@@ -31,10 +32,10 @@ class ProfilingTask implements Runnable {
 //        this.slices.add(TimeSlice.collect(3, TimeUnit.SECONDS).toTimeData());
     }
 
-    public ProfilerFileProto.AirplaneProfileFile stop() {
+    public ProfilerFileProto.AirplaneProfileFile stop(ProfileDictionary dictionary) {
         ServerConnector.connector.cancel(this);
 
-        return AsyncProfilerIntegration.stopProfiling()
+        return AsyncProfilerIntegration.stopProfiling(dictionary)
 //          .addAllTimeData(this.slices)
           .setStartedAt(this.startedAt)
           .setStoppedAt(System.currentTimeMillis())

@@ -16,8 +16,8 @@ plugins {
     id "maven-publish"
 }
 
-group 'gg.airplane'
-version '1.0-SNAPSHOT'
+group 'com.github.technove'
+version 'local-SNAPSHOT'
 
 java {
     targetCompatibility = JavaVersion.VERSION_1_8

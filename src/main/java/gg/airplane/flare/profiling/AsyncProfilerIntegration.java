@@ -3,30 +3,39 @@ package gg.airplane.flare.profiling;
 import com.sun.jna.Platform;
 import gg.airplane.flare.ProfileType;
 import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.collectors.GCCollector;
+import gg.airplane.flare.collectors.ThreadState;
+import gg.airplane.flare.profiling.dictionary.JavaMethod;
+import gg.airplane.flare.profiling.dictionary.ProfileDictionary;
+import gg.airplane.flare.profiling.dictionary.TypeValue;
 import gg.airplane.flare.proto.ProfilerFileProto;
-import one.jfr.ClassRef;
 import one.jfr.Dictionary;
 import one.jfr.JfrReader;
-import one.jfr.MethodRef;
+import one.jfr.StackTrace;
+import one.jfr.event.Event;
+import one.jfr.event.EventAggregator;
 import one.profiler.AsyncProfiler;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 public class AsyncProfilerIntegration {
 
-    private static ProfileType currentProfile;
+    private static final int ALLOC_INTERVAL = 8192;
+
+    private static boolean initialized = false;
+
+    //    private static ProfileType currentProfile;
+    private static boolean profiling = false;
     private static AsyncProfiler profiler;
     private static long startTime = 0;
     private static String disabledReason = "";
@@ -35,6 +44,9 @@ public class AsyncProfilerIntegration {
     private static int interval;
 
     public static void init() {
+        if (initialized) {
+            return;
+        }
         String path = Platform.RESOURCE_PREFIX + "/libasyncProfiler.so";
 
         File tmp = new File(System.getProperty("java.io.tmpdir"), "libasyncProfiler.so");
@@ -65,14 +77,17 @@ public class AsyncProfilerIntegration {
         List<String> arguments = ManagementFactory.getRuntimeMXBean().getInputArguments().stream().map(String::toLowerCase).collect(Collectors.toList());
         for (String s : required) {
             if (!arguments.contains(s.toLowerCase())) {
-                ServerConnector.connector.log(Level.WARNING, "Skipping profiling support, missing flags -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints");
-                disabledReason = "Flags -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints were not added.";
-                return;
+                ServerConnector.connector.log(Level.WARNING, "For optimal profiles, the following flags are missing: -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints");
+                break;
             }
         }
 
         profiler = AsyncProfiler.getInstance(tmp.getAbsolutePath());
         ServerConnector.connector.log(Level.INFO, "Enabled async profiling support, version " + profiler.getVersion());
+        initialized = true;
+
+        ThreadState.initialize();
+        GCCollector.initialize();
     }
 
     public static String getDisabledReason() {
@@ -84,7 +99,7 @@ public class AsyncProfilerIntegration {
     }
 
     public static boolean isProfiling() {
-        return currentProfile != null;
+        return profiling;
     }
 
     private static String execute(String command) throws IOException {
@@ -93,27 +108,25 @@ public class AsyncProfilerIntegration {
         return val;
     }
 
-    synchronized static void startProfiling(ProfileType type, int interval) throws IOException {
-        if (currentProfile != null) {
+    synchronized static void startProfiling(ProfileType primaryType, int interval) throws IOException {
+        if (profiling) {
             throw new RuntimeException("Profiling already started.");
         }
-        currentProfile = type;
         AsyncProfilerIntegration.interval = interval;
         Thread mainThread = ServerConnector.connector.getMainThread();
 
         tempdir = Files.createTempDirectory("flare");
         profileFile = tempdir.resolve("flare.jfr").toString();
 
-        String returned;
-        if (type == ProfileType.ALLOC) {
-            returned = execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,jstackdepth=1024,jfr,file=" + profileFile);
-        } else {
-            returned = execute("start,event=" + type.getInternalName() + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024,jfr,file=" + profileFile);
-            profiler.addThread(mainThread);
+        String returned = execute("start,event=" + primaryType.getInternalName() + ",alloc=" + ALLOC_INTERVAL + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024,jfr,file=" + profileFile);
+        profiler.addThread(mainThread);
+        for (Thread activeThread : ThreadState.getActiveThreads()) {
+            profiler.addThread(activeThread);
         }
-        if (!returned.trim().equals("Profiling started")) {
+        if ((!returned.contains("Started ") || !returned.contains(" profiling")) && !returned.contains("Profiling started")) {
             throw new IOException("Failed to start flare: " + returned.trim());
         }
+        profiling = true;
         startTime = System.currentTimeMillis();
     }
 
@@ -127,207 +140,118 @@ public class AsyncProfilerIntegration {
         return status;
     }
 
-    private static boolean isInt(String strNum) {
-        if (strNum == null) {
-            return false;
-        }
-        try {
-            double d = Integer.parseInt(strNum);
-        } catch (NumberFormatException nfe) {
-            return false;
-        }
-        return true;
-    }
 
-    private static final int FRAME_KERNEL = 5;
+    private static class FinalProfileData {
+        private final Map<String, ProfileSection> threads;
+        private final int samples;
 
-    protected enum JFRMethodType {
-        JAVA('J'),
-        KERNEL('K'),
-        NATIVE('N');
-
-        private final char prefix;
-
-        JFRMethodType(char prefix) {
-            this.prefix = prefix;
+        private FinalProfileData(Map<String, ProfileSection> threads, int samples) {
+            this.threads = threads;
+            this.samples = samples;
         }
 
-        public char getPrefix() {
-            return prefix;
+        public Map<String, ProfileSection> getThreads() {
+            return threads;
+        }
+
+        public int getSamples() {
+            return samples;
         }
     }
 
-    protected static class JFRMethod {
-        private final JFRMethodType type;
+    private static FinalProfileData getProfileData(JfrReader reader, ProfileType type) {
+        Map<String, ProfileSection> threadsMap = new HashMap<>();
+        Dictionary<TypeValue> methodNames = new Dictionary<>(); // method names cache
 
-        private final String classString;
-        private final String methodStr;
-        private final String signatureStr;
-
-        private final String fullPath;
-
-        public JFRMethod(JFRMethodType type, String classString, String methodStr, String signatureStr, String fullPath) {
-            this.type = type;
-            this.classString = classString;
-            this.methodStr = methodStr;
-            this.signatureStr = signatureStr;
-            this.fullPath = fullPath;
+        EventAggregator agg = new EventAggregator(true, true);
+        int totalSamples = 0;
+        for (Event event; (event = reader.readEvent(type.getEventClass())) != null; ) {
+            agg.collect(event);
+            totalSamples++;
         }
 
-        public JFRMethodType getType() {
-            return type;
-        }
+        agg.forEach((event, value, samples) -> {
+            StackTrace stackTrace = reader.stackTraces.get(event.stackTraceId);
+            if (stackTrace == null) {
+                return;
+            }
 
-        public String getClassString() {
-            return classString;
-        }
+            long[] methods = stackTrace.methods;
+            byte[] types = stackTrace.types;
 
-        public String getMethodStr() {
-            return methodStr;
-        }
+            String thread = reader.threads.get(event.tid);
+            ProfileSection section = null;
+            for (int i = methods.length - 1; i >= 0; i--) {
+                TypeValue method = JavaMethod.getMethodName(methods[i], types[i], reader, methodNames);
+                if (section == null) {
+                    section = threadsMap.computeIfAbsent(thread, t -> new ProfileSection(method, type));
+                } else {
+                    section = section.getSection(method);
+                }
+            }
 
-        public String getSignatureStr() {
-            return signatureStr;
-        }
+            if (section != null) {
+                section.setSamples(Math.toIntExact(samples));
+                section.setTimeTakenNs(type == ProfileType.ALLOC ? value : value * interval);
+            }
+        });
 
-        public String getFullPath() {
-            return fullPath;
-        }
+        reader.resetRead(); // needed to read more events later
 
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            JFRMethod jfrMethod = (JFRMethod) o;
-            return type == jfrMethod.type && Objects.equals(classString, jfrMethod.classString) && Objects.equals(methodStr, jfrMethod.methodStr) && Objects.equals(signatureStr, jfrMethod.signatureStr) && Objects.equals(fullPath, jfrMethod.fullPath);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(type, classString, methodStr, signatureStr, fullPath);
-        }
-
-        @Override
-        public String toString() {
-            return this.type.prefix + this.fullPath;
-        }
+        return new FinalProfileData(threadsMap, totalSamples);
     }
 
-    private static JFRMethod getMethodName(long methodId, int type, JfrReader reader, Dictionary<JFRMethod> methodNames) {
-        JFRMethod result = methodNames.get(methodId);
-        if (result != null) {
-            return result;
-        }
-
-        MethodRef method = reader.methods.get(methodId);
-        ClassRef cls = reader.classes.get(method.cls);
-        byte[] className = reader.symbols.get(cls.name);
-        byte[] methodName = reader.symbols.get(method.name);
-        byte[] signature = reader.symbols.get(method.sig);
-
-        if (className == null || className.length == 0) {
-            String methodStr = new String(methodName, StandardCharsets.UTF_8);
-            result = new JFRMethod(type == FRAME_KERNEL ? JFRMethodType.KERNEL : JFRMethodType.NATIVE, null, null, null, methodStr);
-        } else {
-            String classStr = new String(className, StandardCharsets.UTF_8).replace("/", ".");
-            String methodStr = new String(methodName, StandardCharsets.UTF_8);
-            String signatureStr = new String(signature, StandardCharsets.UTF_8);
-            result = new JFRMethod(JFRMethodType.JAVA, classStr, methodStr, signatureStr, classStr + '.' + methodStr + signatureStr);
-        }
-
-        methodNames.put(methodId, result);
-        return result;
-    }
-
-    synchronized static ProfilerFileProto.AirplaneProfileFile.Builder stopProfiling() {
-        if (currentProfile == null) {
+    synchronized static ProfilerFileProto.AirplaneProfileFile.Builder stopProfiling(ProfileDictionary dictionary) {
+        if (!profiling) {
             throw new RuntimeException("Flare has not been started.");
         }
         try {
             profiler.stop();
         } catch (Throwable t) {
-            currentProfile = null;
+            profiling = false;
             throw t;
         }
 
-        Dictionary<JFRMethod> methodNames = new Dictionary<>(); // method names cache
         try (JfrReader reader = new JfrReader(profileFile)) {
-            Map<String, ProfileSection> threadsMap = new HashMap<>();
-            reader.stackTraces.forEach((stackId, stackTrace) -> {
-                List<String> threads = stackTrace.samples.stream().map(sampleId -> reader.threads.get(reader.samples.get(sampleId).tid)).collect(Collectors.toList());
+            FinalProfileData cpuData = getProfileData(reader, ProfileType.WALL);
+            FinalProfileData allocData = getProfileData(reader, ProfileType.ALLOC);
 
-                long[] methods = stackTrace.methods;
-                byte[] types = stackTrace.types;
-
-                for (String thread : threads) {
-//                    System.out.println("---- " + stackTrace.samples + " " + thread);
-                    ProfileSection lastSection = null;
-                    for (int i = methods.length - 1; i >= 0; i--) {
-                        JFRMethod method = getMethodName(methods[i], types[i], reader, methodNames);
-//                        System.out.println(method);
-                        if (lastSection == null) {
-                            lastSection = threadsMap.computeIfAbsent(thread, t -> new ProfileSection(method, currentProfile));
-                        } else {
-                            lastSection = lastSection.getSection(method);
-                        }
-                    }
-
-                    if (lastSection != null) {
-                        lastSection.setSamples(stackTrace.samples.size());
-                        lastSection.setTimeTakenNs((long) interval * stackTrace.samples.size());
-                    }
-//                    System.out.println();
-                }
-            });
-
-            for (ProfileSection value : threadsMap.values()) {
-//                System.out.println(value.print(0));
-            }
-
-            ProfilerFileProto.AirplaneProfileFile.Builder builder = ProfilerFileProto.AirplaneProfileFile.newBuilder()
+            return ProfilerFileProto.AirplaneProfileFile.newBuilder()
               .setInfo(ProfilerFileProto.AirplaneProfileFile.ProfileInfo.newBuilder()
-                .setSamples(reader.samples.getSize())
+                .setSamples(Math.max(cpuData.samples, allocData.samples))
                 .setTimeMs(reader.durationNanos / 1000000)
-                .build());
+                .build())
+              .setData(ProfilerFileProto.AirplaneProfileFile.ProfileData.newBuilder()
+                .setMemoryProfile(ProfilerFileProto.MemoryProfile.newBuilder()) // add blank profile, since we use the indiviudal fields now
+              )
+              .setV2(ProfilerFileProto.AirplaneProfileFile.V2Data.newBuilder()
+                .addAllTimeProfile(cpuData.getThreads()
+                  .entrySet()
+                  .stream()
+                  .map(entry -> ProfilerFileProto.TimeProfileV2.newBuilder()
+                    .setThread(entry.getKey())
+                    .setTime(entry.getValue().calculateTimeTaken())
+                    .setSamples(cpuData.samples)
+                    .addAllChildren(entry.getValue().toTimeChild(dictionary).getChildrenList())
+                    .build())
+                  .collect(Collectors.toList()))
 
-            if (currentProfile == ProfileType.ALLOC) {
-                return builder
-                  .setData(ProfilerFileProto.AirplaneProfileFile.ProfileData.newBuilder()
-                    .setMemoryProfile(ProfilerFileProto.MemoryProfile.newBuilder()
-                      .addAllChildren(threadsMap
-                        .entrySet()
-                        .stream()
-                        .map(entry -> ProfilerFileProto.MemoryProfile.Children.newBuilder()
-                          .setName(entry.getKey())
-                          .setBytes((int) entry.getValue().calculateTimeTaken())
-                          .addChildren(entry.getValue().toMemoryProfile())
-                          .build())
-                        .collect(Collectors.toList())
-                      )
-                    )
-                  );
-            } else {
-                return builder
-                  .setData(ProfilerFileProto.AirplaneProfileFile.ProfileData.newBuilder()
-                    .setTimeProfile(ProfilerFileProto.TimeProfile.newBuilder()
-                      .addAllChildren(threadsMap
-                        .entrySet()
-                        .stream()
-                        .map(entry -> ProfilerFileProto.TimeProfile.Children.newBuilder()
-                          .setName(entry.getKey())
-                          .setTime(entry.getValue().calculateTimeTaken())
-                          .setSamples(1)
-                          .addChildren(entry.getValue().toTimeChild())
-                          .build())
-                        .collect(Collectors.toList())
-                      )
-                    )
-                  );
-            }
+                .addAllMemoryProfile(allocData.getThreads()
+                  .entrySet()
+                  .stream()
+                  .map(entry -> ProfilerFileProto.MemoryProfileV2.newBuilder()
+                    .setThread(entry.getKey())
+                    .setBytes(entry.getValue().calculateTimeTaken())
+                    .addAllChildren(entry.getValue().toMemoryProfile(dictionary).getChildrenList())
+                    .build())
+                  .collect(Collectors.toList()))
+
+                .setDictionary(dictionary.toProto())
+              );
         } catch (IOException e) {
             throw new RuntimeException(e);
         } finally {
-            currentProfile = null;
+            profiling = false;
             try {
                 for (Path path : Files.list(tempdir).collect(Collectors.toList())) {
                     Files.delete(path);

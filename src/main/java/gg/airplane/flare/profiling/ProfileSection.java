@@ -2,8 +2,10 @@ package gg.airplane.flare.profiling;
 
 import gg.airplane.flare.ProfileType;
 import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.profiling.dictionary.JavaMethod;
+import gg.airplane.flare.profiling.dictionary.ProfileDictionary;
+import gg.airplane.flare.profiling.dictionary.TypeValue;
 import gg.airplane.flare.proto.ProfilerFileProto;
-import gg.airplane.flare.proto.ProfilerFileProto.TimeProfile;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,22 +13,22 @@ import java.util.List;
 import java.util.Map;
 
 class ProfileSection {
-    private final AsyncProfilerIntegration.JFRMethod method;
+    private final TypeValue method;
     private final ProfileType type;
-    private final Map<AsyncProfilerIntegration.JFRMethod, ProfileSection> sections = new HashMap<>();
+    private final Map<TypeValue, ProfileSection> sections = new HashMap<>();
     private long timeTaken = 0;
     private int samples = 0;
 
-    public ProfileSection(AsyncProfilerIntegration.JFRMethod method, ProfileType type) {
+    public ProfileSection(TypeValue method, ProfileType type) {
         this.method = method;
         this.type = type;
     }
 
-    public AsyncProfilerIntegration.JFRMethod getMethod() {
+    public TypeValue getMethod() {
         return method;
     }
 
-    public Map<AsyncProfilerIntegration.JFRMethod, ProfileSection> getSections() {
+    public Map<TypeValue, ProfileSection> getSections() {
         return sections;
     }
 
@@ -42,7 +44,7 @@ class ProfileSection {
         this.samples = samples;
     }
 
-    public ProfileSection getSection(AsyncProfilerIntegration.JFRMethod method) {
+    public ProfileSection getSection(TypeValue method) {
         return this.sections.computeIfAbsent(method, k -> new ProfileSection(k, this.type));
     }
 
@@ -63,35 +65,43 @@ class ProfileSection {
         }
     }
 
-    public TimeProfile.Children toTimeChild() {
-        TimeProfile.Children.Builder builder = TimeProfile.Children.newBuilder();
-        builder.setName(this.method.toString());
+    public ProfilerFileProto.TimeProfileV2.Children toTimeChild(ProfileDictionary dictionary) {
+        ProfilerFileProto.TimeProfileV2.Children.Builder builder = ProfilerFileProto.TimeProfileV2.Children.newBuilder();
+        builder.setName(dictionary.getOrAddMethod(this.method));
         builder.setTime(this.calculateTimeTaken());
         builder.setSamples(this.samples);
-        String pluginForClass = this.method.getClassString() == null ? null : ServerConnector.connector.getPluginForClass(this.method.getClassString());
-        if (pluginForClass != null) {
-            builder.setPlugin(pluginForClass);
+
+        if (this.method instanceof JavaMethod) {
+            String classString = ((JavaMethod) this.method).getClassString();
+            String pluginForClass = classString == null ? null : ServerConnector.connector.getPluginForClass(classString);
+            if (pluginForClass != null) {
+                builder.setPlugin(pluginForClass);
+            }
         }
         if (!this.sections.isEmpty()) {
             List<ProfileSection> childrenList = new ArrayList<>(this.sections.values());
             childrenList.sort((c1, c2) -> (int) (c1.calculateTimeTaken() - c2.calculateTimeTaken()));
-            childrenList.stream().map(ProfileSection::toTimeChild).forEach(builder::addChildren);
+            childrenList.stream().map(section -> section.toTimeChild(dictionary)).forEach(builder::addChildren);
         }
         return builder.build();
     }
 
-    public ProfilerFileProto.MemoryProfile.Children toMemoryProfile() {
-        ProfilerFileProto.MemoryProfile.Children.Builder builder = ProfilerFileProto.MemoryProfile.Children.newBuilder();
-        builder.setName(this.method.toString());
+    public ProfilerFileProto.MemoryProfileV2.Children toMemoryProfile(ProfileDictionary dictionary) {
+        ProfilerFileProto.MemoryProfileV2.Children.Builder builder = ProfilerFileProto.MemoryProfileV2.Children.newBuilder();
+        builder.setName(dictionary.getOrAddMethod(this.method));
         builder.setBytes((int) this.calculateTimeTaken());
-        String pluginForClass = this.method.getClassString() == null ? null : ServerConnector.connector.getPluginForClass(this.method.getClassString());
-        if (pluginForClass != null) {
-            builder.setPlugin(pluginForClass);
+
+        if (this.method instanceof JavaMethod) {
+            String classString = ((JavaMethod) this.method).getClassString();
+            String pluginForClass = classString == null ? null : ServerConnector.connector.getPluginForClass(classString);
+            if (pluginForClass != null) {
+                builder.setPlugin(pluginForClass);
+            }
         }
         if (!this.sections.isEmpty()) {
             List<ProfileSection> childrenList = new ArrayList<>(this.sections.values());
             childrenList.sort((c1, c2) -> (int) (c1.calculateTimeTaken() - c2.calculateTimeTaken()));
-            childrenList.stream().map(ProfileSection::toMemoryProfile).forEach(builder::addChildren);
+            childrenList.stream().map(section -> section.toMemoryProfile(dictionary)).forEach(builder::addChildren);
         }
         return builder.build();
     }

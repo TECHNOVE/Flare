@@ -3,6 +3,7 @@ package gg.airplane.flare.profiling;
 import gg.airplane.flare.ProfileType;
 import gg.airplane.flare.ServerConnector;
 import gg.airplane.flare.exceptions.UserReportableException;
+import gg.airplane.flare.profiling.dictionary.ProfileDictionary;
 import gg.airplane.flare.proto.ProfilerFileProto;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
@@ -11,36 +12,29 @@ import oshi.hardware.HardwareAbstractionLayer;
 import oshi.hardware.VirtualMemory;
 import oshi.software.os.OperatingSystem;
 
-import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.logging.Level;
 
 public class ProfileController implements Runnable {
 
     private static final int switchFrequency = 20 * 30; // every 30s switch between tasks
-    private static final int warmupFrequency = 20 * 10; // switch every 10s to get some initial data in the dashboard
-    private static final int ticksUntilWarmedUp = 20 * 60; // do 1 minute of switching every 10s
-    private static final List<ProfileType> defaultTypes = Arrays.asList(
-      ProfileType.WALL,
-      ProfileType.ALLOC,
-      ProfileType.WALL
-    ); // by default just alternate between itimer & alloc
     private static final int maxTicksToRun = 20 * 60 * 30; // run for 30 minutes before shutting off
 
-    private int currentTaskIndex = 0;
     private int currentTick = 0;
+    private int iterations = 0;
 
     private final ProfilingConnection connection;
     private final ProfileType type;
     private final int interval;
+    private final ProfileDictionary dictionary = new ProfileDictionary();
     private ProfilingTask currentTask;
     private boolean running = false;
 
     public ProfileController(ProfileType type, int interval) throws UserReportableException {
-        this.type = type;
+        this.type = Objects.requireNonNull(type);
         this.interval = interval;
 
         List<ProfilerFileProto.CreateProfile.ConfigurationFile> files = new ArrayList<>();
@@ -64,7 +58,7 @@ public class ProfileController implements Runnable {
         OperatingSystem os = systemInfo.getOperatingSystem();
 
         this.connection = new ProfilingConnection(ProfilerFileProto.CreateProfile.newBuilder()
-          .setFormat(ProfilerFileProto.CreateProfile.Format.ONE_ZERO)
+          .setFormat(ProfilerFileProto.CreateProfile.Format.TWO_ZERO)
           .setVersion(ProfilerFileProto.CreateProfile.Version.newBuilder()
             .setPrimary(ServerConnector.connector.getPrimaryVersion())
             .setApi(ServerConnector.connector.getApiVersion())
@@ -111,27 +105,32 @@ public class ProfileController implements Runnable {
     @Override
     public synchronized void run() {
         try {
-            // use switching
             if (this.currentTick == 0) {
                 // initialize
-                ProfileType type = this.type == null ? defaultTypes.get(0) : this.type;
-                this.currentTask = new ProfilingTask(type, this.interval);
+                this.currentTask = new ProfilingTask(this.type, this.interval);
                 this.currentTick++;
                 return;
             }
-            this.currentTick++;
-            int freq = this.currentTick < ticksUntilWarmedUp
-              ? warmupFrequency
-              : switchFrequency;
-            if (this.currentTick % freq == 0) {
-                this.currentTaskIndex++;
+            if (this.currentTick++ >= 20L * (++this.iterations < 3 ? 10 : 30)) { // 10s for first 3 iterations, 30s for rest
+                this.currentTick = 0;
                 this.stop();
-
-                ProfileType type = this.type == null ? defaultTypes.get(this.currentTaskIndex % defaultTypes.size()) : this.type;
-                this.currentTask = new ProfilingTask(type, this.interval);
             }
         } catch (Throwable t) {
             ServerConnector.connector.log(Level.WARNING, "Failed to run Flare controller", t);
+
+            // just try and kill as much as possible
+            try {
+                this.cancel();
+            } catch (Exception e) {
+            }
+            try {
+                this.stop();
+            } catch (Exception e) {
+            }
+            try {
+                AsyncProfilerIntegration.stopProfiling(this.dictionary);
+            } catch (Exception e) {
+            }
         }
     }
 
@@ -149,7 +148,7 @@ public class ProfileController implements Runnable {
 
     public synchronized void stop() {
         if (this.currentTask != null) {
-            ProfilerFileProto.AirplaneProfileFile file = this.currentTask.stop();
+            ProfilerFileProto.AirplaneProfileFile file = this.currentTask.stop(this.dictionary);
             this.currentTask = null;
             ServerConnector.connector.runAsync(() -> {
                 try {

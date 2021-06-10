@@ -23,6 +23,7 @@ message CreateProfile {
 
   enum Format {
     ONE_ZERO = 0; // 1.0
+    TWO_ZERO = 1; // 2.0
   }
 
   message Version {
@@ -91,6 +92,15 @@ message AirplaneProfileFile {
 
   required uint64 startedAt = 4;
   required uint64 stoppedAt = 5;
+
+  // updated types
+  message V2Data {
+    required MethodDictionarySlice dictionary = 1;
+
+    repeated TimeProfileV2 timeProfile = 2;
+    repeated MemoryProfileV2 memoryProfile = 3;
+  }
+  optional V2Data v2 = 6;
 }
 
 message TimeProfile {
@@ -114,6 +124,77 @@ message MemoryProfile {
   }
 
   repeated Children children = 1;
+}
+
+message MethodDictionarySlice {
+  enum MethodType {
+    JAVA = 0;
+    KERNEL = 1;
+    NATIVE = 2;
+  }
+
+  message MethodDictionaryEntry {
+    oneof MethodDictionaryType {
+      JavaDictionaryEntry javaEntry = 1;
+      OtherDictionaryEntry otherEntry = 2;
+    }
+  }
+
+  message JavaDictionaryEntry {
+    message JavaClass {
+      required uint32 packageIndex = 1;
+      required string name = 2;
+    }
+
+    message JavaTypeValue {
+      oneof JavaType {
+        JavaClass javaClassType = 1;
+        string primitive = 2;
+      }
+      required uint32 array = 3; // levels of array
+    }
+
+    required JavaClass javaClass = 1;
+    required string method = 2;
+    repeated JavaTypeValue params = 3;
+    required JavaTypeValue returnType = 4;
+  }
+
+  message OtherDictionaryEntry {
+    required string path = 1;
+    required MethodType type = 2;
+  }
+
+  repeated MethodDictionaryEntry entries = 1;
+  repeated string packageEntries = 2;
+}
+
+message TimeProfileV2 {
+  message Children {
+    required uint32 name = 1;
+    required uint64 time = 2;
+    optional string plugin = 3;
+    required uint32 samples = 4;
+    repeated Children children = 5;
+  }
+
+  required string thread = 1;
+  required uint64 time = 2;
+  required uint32 samples = 3;
+  repeated Children children = 4;
+}
+
+message MemoryProfileV2 {
+  message Children {
+    required uint32 name = 1;
+    optional string plugin = 2;
+    required uint32 bytes = 3;
+    repeated Children children = 4;
+  }
+
+  required string thread = 1;
+  required uint64 bytes = 2;
+  repeated Children children = 4;
 }
 
 message AirplaneTimelineFile {
