@@ -15,6 +15,7 @@ import one.jfr.StackTrace;
 import one.jfr.event.Event;
 import one.jfr.event.EventAggregator;
 import one.profiler.AsyncProfiler;
+import one.profiler.Feature;
 
 import java.io.File;
 import java.io.IOException;
@@ -86,6 +87,10 @@ public class AsyncProfilerIntegration {
         ServerConnector.connector.log(Level.INFO, "Enabled async profiling support, version " + profiler.getVersion());
         initialized = true;
 
+        if (!profiler.check(Feature.DEBUG_SYMBOLS)) {
+            ServerConnector.connector.log(Level.WARNING, "Failed to find JVM debug symbols, allocation profiling will be disabled.");
+        }
+
         ThreadState.initialize();
         GCCollector.initialize();
     }
@@ -104,7 +109,7 @@ public class AsyncProfilerIntegration {
 
     private static String execute(String command) throws IOException {
         String val = profiler.execute(command);
-        System.out.println("[Airplane] " + command + " -> " + val);
+//        System.out.println("[Airplane] " + command + " -> " + val);
         return val;
     }
 
@@ -118,7 +123,8 @@ public class AsyncProfilerIntegration {
         tempdir = Files.createTempDirectory("flare");
         profileFile = tempdir.resolve("flare.jfr").toString();
 
-        String returned = execute("start,event=" + primaryType.getInternalName() + ",alloc=" + ALLOC_INTERVAL + ",interval=" + interval + "ms,threads,filter,jstackdepth=1024,jfr,file=" + profileFile);
+        String alloc = profiler.check(Feature.DEBUG_SYMBOLS) ? "alloc=" + ALLOC_INTERVAL + "," : "";
+        String returned = execute("start,event=" + primaryType.getInternalName() + "," + alloc + "interval=" + interval + "ms,threads,filter,jstackdepth=1024,jfr,file=" + profileFile);
         profiler.addThread(mainThread);
         for (Thread activeThread : ThreadState.getActiveThreads()) {
             profiler.addThread(activeThread);
