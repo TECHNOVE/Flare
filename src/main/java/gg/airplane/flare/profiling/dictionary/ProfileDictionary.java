@@ -8,8 +8,8 @@ import java.util.stream.Collectors;
 
 public class ProfileDictionary {
     private final List<TypeValue> entries = new ArrayList<>();
-    private int lastEntryIndex = 0;
     private final List<String> packages = new ArrayList<>();
+    private int lastEntryIndex = 0;
     private int lastPackageIndex = 0;
 
     public synchronized int getOrAddPackage(String packageName) {
