@@ -17,7 +17,7 @@ plugins {
 }
 
 group 'com.github.technove'
-version 'local-SNAPSHOT'
+version 'v3-SNAPSHOT'
 
 java {
     targetCompatibility = JavaVersion.VERSION_1_8
