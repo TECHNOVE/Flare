@@ -1,4 +1,4 @@
-syntax = "proto2";
+syntax = "proto3";
 
 package gg.airplane.flare.proto;
 
@@ -14,72 +14,92 @@ enum ProfileType {
 }
 
 message CreateProfile {
-  required Format format = 1 [default = ONE_ZERO];
-  required Version version = 2;
+  Format format = 1;
+  Version version = 2; // replaced by v3.versions
   repeated ConfigurationFile configs = 3;
-  required HardwareInfo hwinfo = 4;
-  required VMOptions vmoptions = 5;
-  required OperatingSystem os = 6;
+  HardwareInfo hwinfo = 4;
+  VMOptions vmoptions = 5;
+  OperatingSystem os = 6;
+  V3 v3 = 7;
 
   enum Format {
     ONE_ZERO = 0; // 1.0
     TWO_ZERO = 1; // 2.0
+    THREE_ZERO = 2; // 3.0
+  }
+
+  message V3 {
+    map<string, string> versions = 1;
+    map<string, TimelineData> timelineData = 2;
+    repeated GraphCategory graphCategories = 3;
   }
 
   message Version {
-    required string primary = 1;
-    required string api = 2;
-    required string mc = 3;
+    string primary = 1;
+    string api = 2;
+    string mc = 3;
   }
 
   message ConfigurationFile {
-    required string filename = 1;
-    required string contents = 2;
+    string filename = 1;
+    string contents = 2;
   }
 
   message HardwareInfo {
     message CPU {
-      required string model = 1;
-      required uint32 coreCount = 2;
-      required uint32 threadCount = 3;
-      required uint64 frequency = 4;
+      string model = 1;
+      uint32 coreCount = 2;
+      uint32 threadCount = 3;
+      uint64 frequency = 4;
     }
 
-    required CPU cpu = 1;
+    CPU cpu = 1;
 
     message Memory {
-      required uint64 total = 1;
-      required uint64 swapTotal = 2;
-      required uint64 virtualMax = 3;
+      uint64 total = 1;
+      uint64 swapTotal = 2;
+      uint64 virtualMax = 3;
     }
 
-    required Memory memory = 2;
+    Memory memory = 2;
   }
 
   message VMOptions {
-    required string version = 1;
-    required string vendor = 2;
-    required string vm = 3;
-    required string runtimeName = 4;
-    required string runtimeVersion = 5;
+    string version = 1;
+    string vendor = 2;
+    string vm = 3;
+    string runtimeName = 4;
+    string runtimeVersion = 5;
     repeated string flags = 6;
   }
 
   message OperatingSystem {
-    required string manufacturer = 1;
-    required string family = 2;
-    required string version = 3;
-    required uint32 bitness = 4;
+    string manufacturer = 1;
+    string family = 2;
+    string version = 3;
+    uint32 bitness = 4;
+  }
+
+  message TimelineData {
+    string name = 1;
+    string description = 2;
+    string format = 3;
+  }
+
+  message GraphCategory {
+    string name = 1;
+    repeated string types = 2;
+    bool default = 3;
   }
 }
 
 message AirplaneProfileFile {
   message ProfileInfo {
-    optional uint64 samples = 1;
-    optional uint64 time_ms = 2;
+    uint64 samples = 1;
+    int64 time_ms = 2;
   }
 
-  required ProfileInfo info = 1;
+  ProfileInfo info = 1;
 
   message ProfileData {
     oneof ProfileType {
@@ -88,27 +108,27 @@ message AirplaneProfileFile {
     }
   }
 
-  required ProfileData data = 2;
+  ProfileData data = 2;
 
-  required uint64 startedAt = 4;
-  required uint64 stoppedAt = 5;
+  uint64 startedAt = 4;
+  uint64 stoppedAt = 5;
 
   // updated types
   message V2Data {
-    required MethodDictionarySlice dictionary = 1;
+    MethodDictionarySlice dictionary = 1;
 
     repeated TimeProfileV2 timeProfile = 2;
     repeated MemoryProfileV2 memoryProfile = 3;
   }
-  optional V2Data v2 = 6;
+  V2Data v2 = 6;
 }
 
 message TimeProfile {
   message Children {
-    required string name = 1;
-    required uint64 time = 2;
-    optional string plugin = 3;
-    required uint32 samples = 4;
+    string name = 1;
+    uint64 time = 2;
+    string plugin = 3;
+    uint32 samples = 4;
     repeated Children children = 5;
   }
 
@@ -117,9 +137,9 @@ message TimeProfile {
 
 message MemoryProfile {
   message Children {
-    required string name = 1;
-    optional string plugin = 2;
-    required uint32 bytes = 3;
+    string name = 1;
+    string plugin = 2;
+    uint32 bytes = 3;
     repeated Children children = 4;
   }
 
@@ -142,8 +162,8 @@ message MethodDictionarySlice {
 
   message JavaDictionaryEntry {
     message JavaClass {
-      required uint32 packageIndex = 1;
-      required string name = 2;
+      uint32 packageIndex = 1;
+      string name = 2;
     }
 
     message JavaTypeValue {
@@ -151,18 +171,18 @@ message MethodDictionarySlice {
         JavaClass javaClassType = 1;
         string primitive = 2;
       }
-      required uint32 array = 3; // levels of array
+      uint32 array = 3; // levels of array
     }
 
-    required JavaClass javaClass = 1;
-    required string method = 2;
+    JavaClass javaClass = 1;
+    string method = 2;
     repeated JavaTypeValue params = 3;
-    required JavaTypeValue returnType = 4;
+    JavaTypeValue returnType = 4;
   }
 
   message OtherDictionaryEntry {
-    required string path = 1;
-    required MethodType type = 2;
+    string path = 1;
+    MethodType type = 2;
   }
 
   repeated MethodDictionaryEntry entries = 1;
@@ -171,49 +191,51 @@ message MethodDictionarySlice {
 
 message TimeProfileV2 {
   message Children {
-    required uint32 name = 1;
-    required uint64 time = 2;
-    optional string plugin = 3;
-    required uint32 samples = 4;
+    uint32 name = 1;
+    uint64 time = 2;
+    string plugin = 3;
+    uint32 samples = 4;
     repeated Children children = 5;
   }
 
-  required string thread = 1;
-  required uint64 time = 2;
-  required uint32 samples = 3;
+  string thread = 1;
+  uint64 time = 2;
+  uint32 samples = 3;
   repeated Children children = 4;
 }
 
 message MemoryProfileV2 {
   message Children {
-    required uint32 name = 1;
-    optional string plugin = 2;
-    required uint32 bytes = 3;
+    uint32 name = 1;
+    string plugin = 2;
+    uint32 bytes = 3;
     repeated Children children = 4;
   }
 
-  required string thread = 1;
-  required uint64 bytes = 2;
+  string thread = 1;
+  uint64 bytes = 2;
   repeated Children children = 4;
 }
 
-message AirplaneTimelineFile {
-    message TimeData {
-      required float tps = 1;
-      required float mspt = 2;
-      required uint32 playerCount = 3;
-      required uint32 entityCount = 4;
-      required uint32 totalChunkCount = 5;
-      required uint32 inactiveChunkCount = 6;
-      required uint32 tileEntityCount = 7;
-      required uint32 currentMemoryUsage = 8;
-      required uint32 totalMemoryAvailable = 9;
-      required float cpuUsage = 10;
-      required uint32 gcTime = 11; // time spent in GC
-      required uint32 oldGcTime = 12;
-    }
+message TimelineFile {
+  message EventData {
+    string type = 1;
+    uint64 time = 2;
+    uint32 duration = 3;
 
-    repeated TimeData timeData = 1;
-    required uint64 startedAt = 2;
-    required uint64 stoppedAt = 3;
+    map<string, string> metadata = 4;
+  }
+
+  message LiveData {
+    string type = 1;
+    repeated double data = 2;
+
+    map<string, string> metadata = 3;
+  }
+
+  uint64 startedAt = 1;
+  uint64 stoppedAt = 2;
+
+  repeated EventData events = 3;
+  repeated LiveData live = 4;
 }

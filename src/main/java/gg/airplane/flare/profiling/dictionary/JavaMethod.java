@@ -45,6 +45,14 @@ public class JavaMethod extends TypeValue {
         return classString;
     }
 
+    public String getRawClass() {
+        String className = this.classString;
+        if (className.contains("$")) {
+            className = className.substring(0, className.indexOf("$"));
+        }
+        return className;
+    }
+
     public String getMethodStr() {
         return methodStr;
     }

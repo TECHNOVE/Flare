@@ -1,7 +1,6 @@
 package gg.airplane.flare.profiling;
 
-import gg.airplane.flare.ProfileType;
-import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.Flare;
 import gg.airplane.flare.profiling.dictionary.JavaMethod;
 import gg.airplane.flare.profiling.dictionary.ProfileDictionary;
 import gg.airplane.flare.profiling.dictionary.TypeValue;
@@ -13,15 +12,15 @@ import java.util.List;
 import java.util.Map;
 
 class ProfileSection {
+    private final Flare flare;
     private final TypeValue method;
-    private final ProfileType type;
     private final Map<TypeValue, ProfileSection> sections = new HashMap<>();
     private long timeTaken = 0;
     private int samples = 0;
 
-    public ProfileSection(TypeValue method, ProfileType type) {
+    public ProfileSection(Flare flare, TypeValue method) {
+        this.flare = flare;
         this.method = method;
-        this.type = type;
     }
 
     public TypeValue getMethod() {
@@ -45,7 +44,7 @@ class ProfileSection {
     }
 
     public ProfileSection getSection(TypeValue method) {
-        return this.sections.computeIfAbsent(method, k -> new ProfileSection(k, this.type));
+        return this.sections.computeIfAbsent(method, k -> new ProfileSection(flare, k));
     }
 
     public long calculateTimeTaken() {
@@ -72,11 +71,7 @@ class ProfileSection {
         builder.setSamples(this.samples);
 
         if (this.method instanceof JavaMethod) {
-            String classString = ((JavaMethod) this.method).getClassString();
-            String pluginForClass = classString == null ? null : ServerConnector.connector.getPluginForClass(classString);
-            if (pluginForClass != null) {
-                builder.setPlugin(pluginForClass);
-            }
+            this.flare.getPluginForClass(((JavaMethod) this.method).getRawClass()).ifPresent(builder::setPlugin);
         }
         if (!this.sections.isEmpty()) {
             List<ProfileSection> childrenList = new ArrayList<>(this.sections.values());
@@ -92,11 +87,7 @@ class ProfileSection {
         builder.setBytes((int) this.calculateTimeTaken());
 
         if (this.method instanceof JavaMethod) {
-            String classString = ((JavaMethod) this.method).getClassString();
-            String pluginForClass = classString == null ? null : ServerConnector.connector.getPluginForClass(classString);
-            if (pluginForClass != null) {
-                builder.setPlugin(pluginForClass);
-            }
+            this.flare.getPluginForClass(((JavaMethod) this.method).getRawClass()).ifPresent(builder::setPlugin);
         }
         if (!this.sections.isEmpty()) {
             List<ProfileSection> childrenList = new ArrayList<>(this.sections.values());

@@ -1,10 +1,7 @@
 package gg.airplane.flare.profiling;
 
 import com.sun.jna.Platform;
-import gg.airplane.flare.ProfileType;
-import gg.airplane.flare.ServerConnector;
-import gg.airplane.flare.collectors.GCCollector;
-import gg.airplane.flare.collectors.ThreadState;
+import gg.airplane.flare.Flare;
 import gg.airplane.flare.profiling.dictionary.JavaMethod;
 import gg.airplane.flare.profiling.dictionary.ProfileDictionary;
 import gg.airplane.flare.profiling.dictionary.TypeValue;
@@ -23,10 +20,10 @@ import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 public class AsyncProfilerIntegration {
@@ -35,76 +32,53 @@ public class AsyncProfilerIntegration {
 
     private static boolean initialized = false;
 
-    //    private static ProfileType currentProfile;
     private static boolean profiling = false;
     private static AsyncProfiler profiler;
-    private static long startTime = 0;
-    private static String disabledReason = "";
     private static Path tempdir = null;
     private static String profileFile = null;
-    private static int interval;
+    private static long interval;
 
-    public static void init() {
+    public static List<String> init() throws InitializationException {
         if (initialized) {
-            return;
+            throw new InitializationException("Integration has already been initialized");
         }
         String path = Platform.RESOURCE_PREFIX + "/libasyncProfiler.so";
 
         File tmp = new File(System.getProperty("java.io.tmpdir"), "libasyncProfiler.so");
         if (tmp.exists() && !tmp.delete()) {
-            ServerConnector.connector.log(Level.WARNING, "Skipping profiling support, failed to access file " + tmp);
-            disabledReason = "File /tmp/libasyncProfiler.so exists, but we failed to delete it.";
-            return;
+            throw new InitializationException("Failed to delete file " + tmp);
         }
         try (InputStream resource = AsyncProfilerIntegration.class.getClassLoader().getResourceAsStream(path)) {
             if (resource == null) {
-                ServerConnector.connector.log(Level.WARNING, "Skipping profiling support, libasyncProfiler.so resource not found at " + path);
-                disabledReason = "libasyncProfiler was not found inside of the Airplane JAR.";
-                return;
+                throw new InitializationException("Failed to find libasyncProfiler.so inside JAR, is this operating system supported?");
             }
             Files.copy(resource, tmp.toPath());
         } catch (IOException e) {
-            ServerConnector.connector.log(Level.WARNING, "[Airplane] Skipping profiling support, exception occurred:", e);
-            disabledReason = "An internal exception occurred, please check the log.";
-            return;
+            throw new InitializationException(e);
         }
         if (!tmp.exists()) {
-            ServerConnector.connector.log(Level.WARNING, "[Airplane] Skipping profiling support, libasyncProfiler.so not found.");
-            disabledReason = "libasyncProfiler.so was not extracted properly.";
-            return;
+            throw new InitializationException("Failed to copy out libasyncProfiler.so");
         }
+
+        List<String> warnings = new ArrayList<>();
 
         String[] required = new String[]{"-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints"};
         List<String> arguments = ManagementFactory.getRuntimeMXBean().getInputArguments().stream().map(String::toLowerCase).collect(Collectors.toList());
         for (String s : required) {
             if (!arguments.contains(s.toLowerCase())) {
-                ServerConnector.connector.log(Level.WARNING, "For optimal profiles, the following flags are missing: -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints");
+                warnings.add("For optimal profiles, the following flags are missing: -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints");
                 break;
             }
         }
 
         profiler = AsyncProfiler.getInstance(tmp.getAbsolutePath());
-        ServerConnector.connector.log(Level.INFO, "Enabled async profiling support, version " + profiler.getVersion());
         initialized = true;
 
         if (!profiler.check(Feature.DEBUG_SYMBOLS)) {
-            ServerConnector.connector.log(Level.WARNING, "Failed to find JVM debug symbols, allocation profiling will be disabled.");
+            warnings.add("Failed to find JVM debug symbols, allocation profiling will be disabled.");
         }
 
-        ThreadState.initialize();
-        GCCollector.initialize();
-    }
-
-    public static String getDisabledReason() {
-        return disabledReason;
-    }
-
-    public static boolean doesNotSupportProfiling() {
-        return profiler == null;
-    }
-
-    public static boolean isProfiling() {
-        return profiling;
+        return warnings;
     }
 
     private static String execute(String command) throws IOException {
@@ -113,27 +87,24 @@ public class AsyncProfilerIntegration {
         return val;
     }
 
-    synchronized static void startProfiling(ProfileType primaryType, int interval) throws IOException {
+    synchronized static void startProfiling(Flare flare) throws IOException {
         if (profiling) {
             throw new RuntimeException("Profiling already started.");
         }
-        AsyncProfilerIntegration.interval = interval;
-        Thread mainThread = ServerConnector.connector.getMainThread();
+        AsyncProfilerIntegration.interval = flare.getSettings().getInterval().toMillis();
 
         tempdir = Files.createTempDirectory("flare");
         profileFile = tempdir.resolve("flare.jfr").toString();
 
         String alloc = profiler.check(Feature.DEBUG_SYMBOLS) ? "alloc=" + ALLOC_INTERVAL + "," : "";
-        String returned = execute("start,event=" + primaryType.getInternalName() + "," + alloc + "interval=" + interval + "ms,threads,filter,jstackdepth=1024,jfr,file=" + profileFile);
-        profiler.addThread(mainThread);
-        for (Thread activeThread : ThreadState.getActiveThreads()) {
+        String returned = execute("start,event=" + flare.getSettings().getProfileType().getInternalName() + "," + alloc + "interval=" + interval + "ms,threads,filter,jstackdepth=1024,jfr,file=" + profileFile);
+        for (Thread activeThread : flare.getThreadState().getActiveThreads()) {
             profiler.addThread(activeThread);
         }
         if ((!returned.contains("Started ") || !returned.contains(" profiling")) && !returned.contains("Profiling started")) {
             throw new IOException("Failed to start flare: " + returned.trim());
         }
         profiling = true;
-        startTime = System.currentTimeMillis();
     }
 
     public static String status() {
@@ -146,26 +117,7 @@ public class AsyncProfilerIntegration {
         return status;
     }
 
-
-    private static class FinalProfileData {
-        private final Map<String, ProfileSection> threads;
-        private final int samples;
-
-        private FinalProfileData(Map<String, ProfileSection> threads, int samples) {
-            this.threads = threads;
-            this.samples = samples;
-        }
-
-        public Map<String, ProfileSection> getThreads() {
-            return threads;
-        }
-
-        public int getSamples() {
-            return samples;
-        }
-    }
-
-    private static FinalProfileData getProfileData(JfrReader reader, ProfileType type) {
+    private static FinalProfileData getProfileData(Flare flare, JfrReader reader, ProfileType type) {
         Map<String, ProfileSection> threadsMap = new HashMap<>();
         Dictionary<TypeValue> methodNames = new Dictionary<>(); // method names cache
 
@@ -186,11 +138,15 @@ public class AsyncProfilerIntegration {
             byte[] types = stackTrace.types;
 
             String thread = reader.threads.get(event.tid);
+            if (thread.startsWith("[tid=")) {
+                return;
+            }
+
             ProfileSection section = null;
             for (int i = methods.length - 1; i >= 0; i--) {
                 TypeValue method = JavaMethod.getMethodName(methods[i], types[i], reader, methodNames);
                 if (section == null) {
-                    section = threadsMap.computeIfAbsent(thread, t -> new ProfileSection(method, type));
+                    section = threadsMap.computeIfAbsent(thread, t -> new ProfileSection(flare, method));
                 } else {
                     section = section.getSection(method);
                 }
@@ -207,7 +163,7 @@ public class AsyncProfilerIntegration {
         return new FinalProfileData(threadsMap, totalSamples);
     }
 
-    synchronized static ProfilerFileProto.AirplaneProfileFile.Builder stopProfiling(ProfileDictionary dictionary) {
+    synchronized static ProfilerFileProto.AirplaneProfileFile.Builder stopProfiling(Flare flare, ProfileDictionary dictionary) {
         if (!profiling) {
             throw new RuntimeException("Flare has not been started.");
         }
@@ -219,8 +175,8 @@ public class AsyncProfilerIntegration {
         }
 
         try (JfrReader reader = new JfrReader(profileFile)) {
-            FinalProfileData cpuData = getProfileData(reader, ProfileType.WALL);
-            FinalProfileData allocData = getProfileData(reader, ProfileType.ALLOC);
+            FinalProfileData cpuData = getProfileData(flare, reader, flare.getSettings().getProfileType());
+            FinalProfileData allocData = getProfileData(flare, reader, ProfileType.ALLOC);
 
             return ProfilerFileProto.AirplaneProfileFile.newBuilder()
               .setInfo(ProfilerFileProto.AirplaneProfileFile.ProfileInfo.newBuilder()
@@ -265,6 +221,24 @@ public class AsyncProfilerIntegration {
                 Files.delete(tempdir);
             } catch (IOException e) {
             }
+        }
+    }
+
+    private static class FinalProfileData {
+        private final Map<String, ProfileSection> threads;
+        private final int samples;
+
+        private FinalProfileData(Map<String, ProfileSection> threads, int samples) {
+            this.threads = threads;
+            this.samples = samples;
+        }
+
+        public Map<String, ProfileSection> getThreads() {
+            return threads;
+        }
+
+        public int getSamples() {
+            return samples;
         }
     }
 }

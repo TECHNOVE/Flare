@@ -1,4 +1,4 @@
-package gg.airplane.flare;
+package gg.airplane.flare.profiling;
 
 import one.jfr.event.AllocationSample;
 import one.jfr.event.ContendedLock;

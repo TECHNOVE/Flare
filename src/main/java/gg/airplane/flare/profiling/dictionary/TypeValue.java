@@ -7,39 +7,13 @@ import one.jfr.JfrReader;
 import one.jfr.MethodRef;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 
 public abstract class TypeValue {
     private static final int FRAME_KERNEL = 5;
+    private final JFRMethodType methodType;
 
     protected TypeValue(JFRMethodType methodType) {
         this.methodType = methodType;
-    }
-
-    public enum JFRMethodType {
-        JAVA('J'),
-        KERNEL('K'),
-        NATIVE('N');
-
-        private final char prefix;
-
-        JFRMethodType(char prefix) {
-            this.prefix = prefix;
-        }
-
-        public char getPrefix() {
-            return prefix;
-        }
-    }
-
-    private final JFRMethodType methodType;
-
-    public abstract ProfilerFileProto.MethodDictionarySlice.MethodDictionaryEntry getEntry(ProfileDictionary dictionary);
-
-    public JFRMethodType getMethodType() {
-        return methodType;
     }
 
     public static TypeValue getMethodName(long methodId, int type, JfrReader reader, Dictionary<TypeValue> methodNames) {
@@ -66,5 +40,27 @@ public abstract class TypeValue {
 
         methodNames.put(methodId, result);
         return result;
+    }
+
+    public abstract ProfilerFileProto.MethodDictionarySlice.MethodDictionaryEntry getEntry(ProfileDictionary dictionary);
+
+    public JFRMethodType getMethodType() {
+        return methodType;
+    }
+
+    public enum JFRMethodType {
+        JAVA('J'),
+        KERNEL('K'),
+        NATIVE('N');
+
+        private final char prefix;
+
+        JFRMethodType(char prefix) {
+            this.prefix = prefix;
+        }
+
+        public char getPrefix() {
+            return prefix;
+        }
     }
 }

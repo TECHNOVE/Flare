@@ -17,7 +17,7 @@ plugins {
 }
 
 group 'com.github.technove'
-version 'master-SNAPSHOT'
+version 'local-SNAPSHOT'
 
 java {
     targetCompatibility = JavaVersion.VERSION_1_8
@@ -57,18 +57,15 @@ protobuf {
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocation
 
-task relocateShadowJar(type: ConfigureShadowRelocation) {
-    target = tasks.shadowJar
-    prefix = "gg.airplane.flare.libs"
-}
-
-tasks.shadowJar.dependsOn tasks.relocateShadowJar
-
 shadowJar {
     minimize()
     exclude '*.proto'
     exclude 'google.protobuf'
     includeEmptyDirs false
+
+    relocate "it.unimi.dsi.fastutil", "gg.airplane.flare.libs.fastutil"
+    relocate "com.google", "gg.airplane.flare.libs.google"
+    relocate "org.apache", "gg.airplane.flare.libs.apache"
 }
 
 jar {
@@ -77,15 +74,15 @@ jar {
 }
 
 dependencies {
-//    compile 'tools.profiler:async-profiler:1.8.3'
-    compile 'com.github.oshi:oshi-core:5.5.1'
-    compile 'org.apache.httpcomponents.client5:httpclient5:5.0.3'
-    compile 'com.eclipsesource.minimal-json:minimal-json:0.9.5'
+    implementation 'it.unimi.dsi:fastutil:8.5.4'
+    implementation 'com.github.oshi:oshi-core:5.5.1'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.0.3'
+    implementation 'com.eclipsesource.minimal-json:minimal-json:0.9.5'
 
-    //compile 'com.google.protobuf:protobuf-javalite:3.8.0'
+    //implementation 'com.google.protobuf:protobuf-javalite:3.8.0'
 
-    compile 'com.google.protobuf:protobuf-java:3.14.0'
-    compile 'com.google.protobuf:protobuf-java-util:3.14.0'
+    implementation 'com.google.protobuf:protobuf-java:3.14.0'
+    implementation 'com.google.protobuf:protobuf-java-util:3.14.0'
 }
 
 publishing {

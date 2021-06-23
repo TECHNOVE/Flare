@@ -1,35 +1,27 @@
 package gg.airplane.flare.collectors;
 
-import gg.airplane.flare.ServerConnector;
+import gg.airplane.flare.Flare;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
-public class ThreadState {
+public class ThreadState implements Runnable {
 
-    public static void initialize() {
-        ServerConnector.connector.scheduleAsync(ThreadState::run, 0L, 40L);
+    private final Map<Thread, ThreadValues> activeThreads = new WeakHashMap<>();
+
+    public void start(Flare flare) {
+        // since this runs once a second, a thread is active if it doesn't sleep at least once over 64s
+        flare.getIntervalManager().schedule(this, Duration.ofSeconds(1));
     }
 
-    private static class ThreadValues {
-        private final boolean[] history = new boolean[10];
-
-        public boolean isActive() {
-            int activeCount = 0;
-            for (boolean active : this.history) {
-                if (active) {
-                    activeCount++;
-                }
-            }
-            return activeCount > 1;
-        }
+    public synchronized void stop() {
+        this.activeThreads.clear();
     }
 
-    private static final Map<Thread, ThreadValues> activeThreads = new WeakHashMap<>();
-
-    private synchronized static void run() {
+    public synchronized void run() {
         Map<Thread, StackTraceElement[]> stacks = Thread.getAllStackTraces();
         for (Map.Entry<Thread, StackTraceElement[]> entry : stacks.entrySet()) {
             StackTraceElement[] stack = entry.getValue();
@@ -52,13 +44,13 @@ public class ThreadState {
                 values = new ThreadValues();
                 activeThreads.put(thread, values);
             }
-            System.arraycopy(values.history, 0, values.history, 1, values.history.length - 1);
-            values.history[0] = active;
+            values.history <<= 1;
+            values.history |= active ? 1 : 0;
         }
         activeThreads.keySet().retainAll(stacks.keySet());
     }
 
-    public synchronized static Set<Thread> getActiveThreads() {
+    public synchronized Set<Thread> getActiveThreads() {
         Set<Thread> set = new HashSet<>();
         for (Map.Entry<Thread, ThreadValues> entry : activeThreads.entrySet()) {
             if (entry.getValue().isActive()) {
@@ -66,6 +58,14 @@ public class ThreadState {
             }
         }
         return set;
+    }
+
+    private static class ThreadValues {
+        private long history = 0;
+
+        public boolean isActive() {
+            return this.history != 0;
+        }
     }
 
 }
