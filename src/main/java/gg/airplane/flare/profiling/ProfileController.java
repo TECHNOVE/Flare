@@ -63,9 +63,10 @@ public class ProfileController implements Runnable {
                 AsyncProfilerIntegration.startProfiling(this.flare);
             }
 
-            if ((this.iterations < 5 && this.currentTick % 20 == 0) || this.currentTick % (20 * 5) == 0) { // every second send timeline data, otherwise 5s
-                this.connection.sendTimelineData(ProtoHelper.createTimeline(this.eventCollectors, this.liveCollectors, this.startedAt, System.currentTimeMillis()));
-                this.startedAt = System.currentTimeMillis();
+            if (System.currentTimeMillis() - this.startedAt > 5000) { // report every 5s
+                long newStart = System.currentTimeMillis();
+                this.connection.sendTimelineData(ProtoHelper.createTimeline(this.eventCollectors, this.liveCollectors, this.startedAt, newStart));
+                this.startedAt = newStart;
             }
 
             if (this.currentTick++ >= 20L * (this.iterations < 5 ? 5 : 15)) { // 5s for first 5 iterations, 15s for rest
@@ -117,6 +118,12 @@ public class ProfileController implements Runnable {
             } catch (Throwable t) {
                 logger.log(Level.WARNING, "Failed to stop collector " + eventCollector.getClass().getName(), t);
             }
+        }
+
+        try {
+            this.connection.sendTimelineData(ProtoHelper.createTimeline(this.eventCollectors, this.liveCollectors, this.startedAt, System.currentTimeMillis()));
+        } catch (UserReportableException e) {
+            logger.log(Level.WARNING, "Failed to send timeline data", e);
         }
 
         this.stop();
