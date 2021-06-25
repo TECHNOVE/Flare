@@ -14,7 +14,7 @@ import java.util.function.Function;
 
 public abstract class LiveCollector extends Collector implements Runnable {
     private final Map<CollectorData, DoubleList> data = new HashMap<>();
-    protected Duration interval = Duration.ofSeconds(1);
+    protected Duration interval = Duration.ofSeconds(5);
 
     public LiveCollector(CollectorData... data) {
         for (CollectorData datum : data) {

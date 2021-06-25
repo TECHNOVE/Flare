@@ -10,10 +10,15 @@ import java.util.logging.Logger;
 public class IntervalManager {
 
     private static final Logger logger = Logger.getLogger("Flare:Scheduler");
-    private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor(runnable -> new Thread(runnable, "Flare Thread"));
+    private volatile boolean shutdown = false;
 
     public void schedule(Runnable runnable, Duration interval) {
         this.exec.scheduleAtFixedRate(() -> {
+            if (shutdown) {
+                return;
+            }
+
             try {
                 runnable.run();
             } catch (Throwable t) {
@@ -24,6 +29,7 @@ public class IntervalManager {
     }
 
     public void cancel() {
+        this.shutdown = true;
         this.exec.shutdownNow();
     }
 

@@ -9,6 +9,7 @@ import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 
 import java.lang.management.ManagementFactory;
+import java.time.Duration;
 
 public class StatCollector extends LiveCollector {
 
@@ -22,6 +23,7 @@ public class StatCollector extends LiveCollector {
 
     public StatCollector() {
         super(CPU, CPU_PROCESS, MEMORY, MEMORY_TOTAL);
+        this.interval = Duration.ofSeconds(3);
 
         this.bean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
         this.processor = new SystemInfo().getHardware().getProcessor();
