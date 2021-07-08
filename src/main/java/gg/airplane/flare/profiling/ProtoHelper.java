@@ -9,12 +9,6 @@ import gg.airplane.flare.live.LiveCollector;
 import gg.airplane.flare.live.category.GraphCategory;
 import gg.airplane.flare.live.formatter.DataFormatter;
 import gg.airplane.flare.proto.ProfilerFileProto;
-import oshi.SystemInfo;
-import oshi.hardware.CentralProcessor;
-import oshi.hardware.GlobalMemory;
-import oshi.hardware.HardwareAbstractionLayer;
-import oshi.hardware.VirtualMemory;
-import oshi.software.os.OperatingSystem;
 
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
@@ -39,15 +33,6 @@ public class ProtoHelper {
               .build());
         });
 
-        SystemInfo systemInfo = new SystemInfo();
-        HardwareAbstractionLayer hardware = systemInfo.getHardware();
-
-        CentralProcessor processor = hardware.getProcessor();
-        CentralProcessor.ProcessorIdentifier processorIdentifier = processor.getProcessorIdentifier();
-
-        GlobalMemory memory = hardware.getMemory();
-        VirtualMemory virtualMemory = memory.getVirtualMemory();
-
         Map<String, ProfilerFileProto.CreateProfile.TimelineData> timelineData = new HashMap<>();
         Map<GraphCategory, Set<String>> categoryMap = new HashMap<>();
         for (Iterator<Collector> it = Iterators.concat(eventCollectors.iterator(), liveCollectors.iterator()); it.hasNext(); ) {
@@ -67,23 +52,10 @@ public class ProtoHelper {
             }
         }
 
-        OperatingSystem os = systemInfo.getOperatingSystem();
         return ProfilerFileProto.CreateProfile.newBuilder()
           .setFormat(ProfilerFileProto.CreateProfile.Format.THREE_ZERO)
           .addAllConfigs(files)
-          .setHwinfo(ProfilerFileProto.CreateProfile.HardwareInfo.newBuilder()
-            .setCpu(ProfilerFileProto.CreateProfile.HardwareInfo.CPU.newBuilder()
-              .setModel(processorIdentifier.getName())
-              .setCoreCount(processor.getPhysicalProcessorCount())
-              .setThreadCount(processor.getLogicalProcessorCount())
-              .setFrequency(processor.getMaxFreq())
-              .build())
-            .setMemory(ProfilerFileProto.CreateProfile.HardwareInfo.Memory.newBuilder()
-              .setTotal(memory.getTotal())
-              .setSwapTotal(virtualMemory.getSwapTotal())
-              .setVirtualMax(virtualMemory.getVirtualMax())
-              .build())
-            .build())
+          .setHwinfo(flare.getHardwareInfo())
           .setVmoptions(ProfilerFileProto.CreateProfile.VMOptions.newBuilder()
             .setVersion(System.getProperty("java.version"))
             .setVendor(System.getProperty("java.vendor"))
@@ -92,12 +64,7 @@ public class ProtoHelper {
             .setRuntimeVersion(System.getProperty("java.runtime.version"))
             .addAllFlags(ManagementFactory.getRuntimeMXBean().getInputArguments())
             .build())
-          .setOs(ProfilerFileProto.CreateProfile.OperatingSystem.newBuilder()
-            .setManufacturer(os.getManufacturer())
-            .setFamily(os.getFamily())
-            .setVersion(os.getVersionInfo().toString())
-            .setBitness(os.getBitness())
-            .build())
+          .setOs(flare.getOperatingSystem())
           .setV3(ProfilerFileProto.CreateProfile.V3.newBuilder()
             .putAllVersions(flare.getServerData().getVersions())
             .putAllTimelineData(timelineData)

@@ -1,6 +1,5 @@
 package gg.airplane.flare.profiling;
 
-import com.sun.jna.Platform;
 import gg.airplane.flare.Flare;
 import gg.airplane.flare.profiling.dictionary.JavaMethod;
 import gg.airplane.flare.profiling.dictionary.ProfileDictionary;
@@ -42,7 +41,13 @@ public class AsyncProfilerIntegration {
         if (initialized) {
             throw new InitializationException("Integration has already been initialized");
         }
-        String path = Platform.RESOURCE_PREFIX + "/libasyncProfiler.so";
+        String osName = System.getProperty("os.name");
+        if (osName.startsWith("Linux")) {
+            osName = "linux";
+        } else {
+            throw new InitializationException("Flare does not support the operating system " + osName);
+        }
+        String path = osName + "-" + System.getProperty("os.arch") + "/libasyncProfiler.so";
 
         File tmp = new File(System.getProperty("java.io.tmpdir"), "libasyncProfiler.so");
         if (tmp.exists() && !tmp.delete()) {
@@ -50,7 +55,7 @@ public class AsyncProfilerIntegration {
         }
         try (InputStream resource = AsyncProfilerIntegration.class.getClassLoader().getResourceAsStream(path)) {
             if (resource == null) {
-                throw new InitializationException("Failed to find libasyncProfiler.so inside JAR, is this operating system supported?");
+                throw new InitializationException("Failed to find " + path + " inside JAR, is this operating system supported?");
             }
             Files.copy(resource, tmp.toPath());
         } catch (IOException e) {

@@ -1,18 +1,16 @@
 package gg.airplane.flare;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import gg.airplane.flare.collectors.ThreadState;
 import gg.airplane.flare.exceptions.UserReportableException;
 import gg.airplane.flare.live.Collector;
 import gg.airplane.flare.live.EventCollector;
 import gg.airplane.flare.live.LiveCollector;
-import gg.airplane.flare.live.builtin.GCEventCollector;
-import gg.airplane.flare.live.builtin.StatCollector;
 import gg.airplane.flare.live.category.GraphCategory;
 import gg.airplane.flare.profiling.AsyncProfilerIntegration;
 import gg.airplane.flare.profiling.InitializationException;
 import gg.airplane.flare.profiling.ProfileController;
+import gg.airplane.flare.proto.ProfilerFileProto;
 import gg.airplane.flare.util.IntervalManager;
 
 import java.util.ArrayList;
@@ -55,9 +53,31 @@ public class Flare {
                 throw new RuntimeException("Unknown collector type");
             }
         }
+    }
 
-        this.eventCollectors.add(new GCEventCollector());
-        this.liveCollectors.add(new StatCollector());
+    public ProfilerFileProto.CreateProfile.HardwareInfo getHardwareInfo() {
+        return ProfilerFileProto.CreateProfile.HardwareInfo.newBuilder()
+                .setCpu(ProfilerFileProto.CreateProfile.HardwareInfo.CPU.newBuilder()
+                        .setModel("unknown")
+                        .setCoreCount(1)
+                        .setThreadCount(1)
+                        .setFrequency(1)
+                        .build())
+                .setMemory(ProfilerFileProto.CreateProfile.HardwareInfo.Memory.newBuilder()
+                        .setTotal(0)
+                        .setSwapTotal(0)
+                        .setVirtualMax(0)
+                        .build())
+                .build();
+    }
+
+    public ProfilerFileProto.CreateProfile.OperatingSystem getOperatingSystem() {
+        return ProfilerFileProto.CreateProfile.OperatingSystem.newBuilder()
+                .setManufacturer("")
+                .setFamily("")
+                .setVersion("")
+                .setBitness(0)
+                .build();
     }
 
     public static List<String> initialize() throws InitializationException {

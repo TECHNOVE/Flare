@@ -66,6 +66,8 @@ shadowJar {
     relocate "it.unimi.dsi.fastutil", "gg.airplane.flare.libs.fastutil"
     relocate "com.google", "gg.airplane.flare.libs.google"
     relocate "org.apache", "gg.airplane.flare.libs.apache"
+    relocate "org.slf4j", "gg.airplane.flare.libs.slf4j"
+    relocate "com.eclipsesource.json", "gg.airplane.flare.libs.json"
 }
 
 jar {
@@ -75,7 +77,6 @@ jar {
 
 dependencies {
     implementation 'it.unimi.dsi:fastutil:8.5.4'
-    implementation 'com.github.oshi:oshi-core:5.5.1'
     implementation 'org.apache.httpcomponents.client5:httpclient5:5.0.3'
     implementation 'com.eclipsesource.minimal-json:minimal-json:0.9.5'
 
