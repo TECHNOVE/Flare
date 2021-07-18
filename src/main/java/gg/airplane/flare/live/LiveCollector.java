@@ -1,8 +1,7 @@
 package gg.airplane.flare.live;
 
 import gg.airplane.flare.Flare;
-import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
-import it.unimi.dsi.fastutil.doubles.DoubleList;
+import gg.airplane.flare.util.DoubleArrayList;
 
 import java.time.Duration;
 import java.util.Collection;
@@ -13,7 +12,7 @@ import java.util.Objects;
 import java.util.function.Function;
 
 public abstract class LiveCollector extends Collector implements Runnable {
-    private final Map<CollectorData, DoubleList> data = new HashMap<>();
+    private final Map<CollectorData, DoubleArrayList> data = new HashMap<>();
     protected Duration interval = Duration.ofSeconds(5);
 
     public LiveCollector(CollectorData... data) {
@@ -42,7 +41,7 @@ public abstract class LiveCollector extends Collector implements Runnable {
         }
     }
 
-    public <T> T useDataThenClear(Function<Map<CollectorData, DoubleList>, T> function) {
+    public <T> T useDataThenClear(Function<Map<CollectorData, DoubleArrayList>, T> function) {
         synchronized (this.data) {
             T returned = function.apply(this.data);
             this.data.values().forEach(List::clear);

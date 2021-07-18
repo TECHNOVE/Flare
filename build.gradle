@@ -1,3 +1,5 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocation
+
 buildscript {
     repositories {
         mavenCentral()
@@ -16,13 +18,14 @@ plugins {
     id "maven-publish"
 }
 
-group 'com.github.technove'
-version 'v3-SNAPSHOT'
-
 java {
-    targetCompatibility = JavaVersion.VERSION_1_8
-    sourceCompatibility = JavaVersion.VERSION_1_8
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(16)
+    }
 }
+
+group 'com.github.technove'
+version 'v3.1-SNAPSHOT'
 
 repositories {
     mavenCentral()
@@ -55,20 +58,18 @@ protobuf {
     generatedFilesBaseDir = "$projectDir/src/generated"
 }
 
-import com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocation
-
 shadowJar {
     minimize()
-    exclude '*.proto'
-    exclude 'google.protobuf'
     includeEmptyDirs false
-
-    relocate "it.unimi.dsi.fastutil", "gg.airplane.flare.libs.fastutil"
-    relocate "com.google", "gg.airplane.flare.libs.google"
-    relocate "org.apache", "gg.airplane.flare.libs.apache"
-    relocate "org.slf4j", "gg.airplane.flare.libs.slf4j"
-    relocate "com.eclipsesource.json", "gg.airplane.flare.libs.json"
 }
+
+task relocateShadowJar(type: ConfigureShadowRelocation) {
+    target = tasks.shadowJar
+    prefix = "gg.airplane.flare.libs"
+
+}
+
+tasks.shadowJar.dependsOn tasks.relocateShadowJar
 
 jar {
     enabled = false
@@ -76,8 +77,6 @@ jar {
 }
 
 dependencies {
-    implementation 'it.unimi.dsi:fastutil:8.5.4'
-    implementation 'org.apache.httpcomponents.client5:httpclient5:5.0.3'
     implementation 'com.eclipsesource.minimal-json:minimal-json:0.9.5'
 
     //implementation 'com.google.protobuf:protobuf-javalite:3.8.0'
