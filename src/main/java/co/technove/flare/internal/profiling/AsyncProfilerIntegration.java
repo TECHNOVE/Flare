@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -231,7 +232,14 @@ public class AsyncProfilerIntegration {
         }
     }
 
-    private record FinalProfileData(
-            Map<String, ProfileSection> threads, int samples) {
+    private static final class FinalProfileData {
+        private final Map<String, ProfileSection> threads;
+        private final int samples;
+
+        private FinalProfileData(
+                Map<String, ProfileSection> threads, int samples) {
+            this.threads = threads;
+            this.samples = samples;
+        }
     }
 }

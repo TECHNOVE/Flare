@@ -2,7 +2,7 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocatio
 
 
 plugins {
-    id 'com.github.johnrengelman.shadow' version '6.1.0'
+    id 'com.github.johnrengelman.shadow' version '7.0.0'
     id "com.google.protobuf" version "0.8.17"
     id "idea"
     id 'java'
@@ -11,6 +11,7 @@ plugins {
 
 java {
     toolchain {
+
         languageVersion = JavaLanguageVersion.of(16)
     }
 }
