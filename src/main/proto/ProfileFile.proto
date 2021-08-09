@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package gg.airplane.flare.proto;
 
-option java_package = "gg.airplane.flare.proto";
+option java_package = "co.technove.flare.proto";
 option java_outer_classname = "ProfilerFileProto";
 
 enum ProfileType {

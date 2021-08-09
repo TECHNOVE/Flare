@@ -1,18 +1,9 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocation
 
-buildscript {
-    repositories {
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.15'
-    }
-}
 
 plugins {
     id 'com.github.johnrengelman.shadow' version '6.1.0'
-    id "com.google.protobuf" version "0.8.15"
+    id "com.google.protobuf" version "0.8.17"
     id "idea"
     id 'java'
     id "maven-publish"
@@ -25,7 +16,7 @@ java {
 }
 
 group 'com.github.technove'
-version 'v3.1-SNAPSHOT'
+version '3.2-SNAPSHOT'
 
 repositories {
     mavenCentral()
@@ -41,18 +32,17 @@ sourceSets {
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:3.12.4"
+        artifact = 'com.google.protobuf:protoc:3.8.0'
     }
-
-//    generateProtoTasks {
-//        all().each { task ->
-//            task.builtins {
-//                java {
-//                    option "lite"
-//                }
-//            }
-//        }
-//    }
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                java {
+                    option "lite"
+                }
+            }
+        }
+    }
 
     generateProtoTasks.generatedFilesBaseDir = 'generated-sources'
     generatedFilesBaseDir = "$projectDir/src/generated"
@@ -65,7 +55,7 @@ shadowJar {
 
 task relocateShadowJar(type: ConfigureShadowRelocation) {
     target = tasks.shadowJar
-    prefix = "gg.airplane.flare.libs"
+    prefix = "co.technove.flare.libs"
 
 }
 
@@ -77,12 +67,12 @@ jar {
 }
 
 dependencies {
+    compileOnly 'org.jetbrains:annotations:21.0.1'
     implementation 'com.eclipsesource.minimal-json:minimal-json:0.9.5'
 
-    //implementation 'com.google.protobuf:protobuf-javalite:3.8.0'
-
-    implementation 'com.google.protobuf:protobuf-java:3.14.0'
+    implementation 'com.google.protobuf:protobuf-javalite:3.17.3'
     implementation 'com.google.protobuf:protobuf-java-util:3.14.0'
+
 }
 
 publishing {
