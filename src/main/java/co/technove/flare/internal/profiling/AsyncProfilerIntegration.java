@@ -12,7 +12,6 @@ import one.jfr.event.Event;
 import one.jfr.event.EventAggregator;
 import one.profiler.AsyncProfiler;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
@@ -22,7 +21,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -50,19 +48,25 @@ public class AsyncProfilerIntegration {
         }
         String path = osName + "-" + System.getProperty("os.arch") + "/libasyncProfiler.so";
 
-        File tmp = new File(System.getProperty("java.io.tmpdir"), "libasyncProfiler.so");
-        if (tmp.exists() && !tmp.delete()) {
-            throw new InitializationException("Failed to delete file " + tmp);
+        final Path flare;
+        try {
+            flare = Files.createTempDirectory("flare");
+        } catch (IOException e) {
+            throw new InitializationException("Could not create temporary directory", e);
         }
+
+        Path tmp = flare.resolve("libasycProfiler.so");
         try (InputStream resource = AsyncProfilerIntegration.class.getClassLoader().getResourceAsStream(path)) {
             if (resource == null) {
                 throw new InitializationException("Failed to find " + path + " inside JAR, is this operating system supported?");
             }
-            Files.copy(resource, tmp.toPath());
+            Files.copy(resource, tmp);
+            tmp.toFile().deleteOnExit();
+            flare.toFile().deleteOnExit();
         } catch (IOException e) {
             throw new InitializationException(e);
         }
-        if (!tmp.exists()) {
+        if (!Files.exists(tmp)) {
             throw new InitializationException("Failed to copy out libasyncProfiler.so");
         }
 
@@ -77,7 +81,7 @@ public class AsyncProfilerIntegration {
             }
         }
 
-        profiler = AsyncProfiler.getInstance(tmp.getAbsolutePath());
+        profiler = AsyncProfiler.getInstance(tmp.toAbsolutePath().toString());
         initialized = true;
 
         boolean supportsProfilingMemory = false;

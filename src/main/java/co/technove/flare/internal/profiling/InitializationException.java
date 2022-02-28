@@ -8,4 +8,8 @@ public class InitializationException extends Exception {
     public InitializationException(Throwable throwable) {
         super(throwable);
     }
+
+    public InitializationException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }
